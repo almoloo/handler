@@ -1,0 +1,11 @@
+services:
+  postgres:
+    image: postgres:16
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_PASSWORD: handler
+      POSTGRES_DB: handler
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    ports: ["8545:8545"]
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--fork-url", "${BASE_RPC_URL}"]

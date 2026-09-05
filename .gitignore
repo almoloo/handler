@@ -1,0 +1,11 @@
+node_modules/
+.next/
+dist/
+.env
+.env.local
+
+packages/contracts/cache/
+packages/contracts/out/
+packages/contracts/broadcast/*/31337/
+
+!packages/contracts/ts/generated.ts

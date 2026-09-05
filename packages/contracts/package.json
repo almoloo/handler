@@ -1,0 +1,19 @@
+{
+  "name": "@handler/contracts",
+  "version": "1.0.0",
+  "description": "",
+  "main": "ts/generated.ts",
+  "types": "ts/generated.ts",
+  "scripts": {
+    "codegen": "forge build && wagmi generate",
+    "build": "forge build",
+    "test": "forge test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@wagmi/cli": "^2.10.0"
+  }
+}

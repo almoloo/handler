@@ -1,0 +1,25 @@
+{
+  "name": "handler",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "pnpm --parallel --filter web --filter api dev",
+    "dev:chain": "docker compose up -d postgres anvil",
+    "codegen": "pnpm --filter @handler/contracts codegen",
+    "build": "pnpm -r build",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.3.4",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.3.4",
+  "type": "module"
+}
