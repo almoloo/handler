@@ -13,6 +13,7 @@ Full product spec: `context/project-overview.md`. This project is scaffolded ver
 This repo is managed through a `context/` folder and a matching set of slash-command skills. **Follow the workflow in `context/ai-interaction.md` — it is the actual operating procedure for this repo, not just background reading.** Key points:
 
 - `context/project-overview.md` — product spec / scope (locked hackathon scope; don't add out-of-scope features — see its "Out of scope" list).
+- `context/frontend-roadmap.md`, `context/backend-roadmap.md`, `context/contracts-roadmap.md` — authoritative, part-specific build plans: stack choices, module/screen breakdown, day-by-day sequencing, and each part's own "out of scope" list. Consult the matching roadmap before planning or implementing any change in that part.
 - `context/coding-standards.md` — per-part conventions (below is a summary; that file is authoritative).
 - `context/ai-interaction.md` — the required workflow: document the feature in `context/current-feature.md` → branch → implement → codegen if contracts changed → test → commit (only after tests pass, only with permission) → merge → delete branch → log it in `current-feature.md` history.
 - `context/current-feature.md` — the in-flight feature/fix spec and history log. Check this before starting work to see what's already in progress.

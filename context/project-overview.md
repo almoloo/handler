@@ -52,4 +52,4 @@ Multi-chain, mobile-native app, full x402 integration, ERC-4337/account abstract
 - **Contracts (`packages/contracts`)**: Solidity via Foundry, OpenZeppelin, Chainlink AggregatorV3 feeds, ERC-8004 registry reads. Deployed on Base Sepolia (or a persistent Base-mainnet anvil fork if 1inch requires it).
 - **Monorepo**: pnpm workspaces (`apps/*`, `packages/*`), shared contract ABIs/types generated via `@wagmi/cli`'s Foundry plugin into `packages/contracts/ts`, consumed by both apps as `@handler/contracts`.
 
-Full architectural detail lives in `context/frontend-roadmap.md`, `context/backend-roadmap.md`, and `context/contracts-roadmap.md`.
+Full architectural detail lives in `context/frontend-roadmap.md`, `context/backend-roadmap.md`, and `context/contracts-roadmap.md` — these are the authoritative, part-specific build plans (stack choices, module/screen breakdown, day-by-day sequencing, explicit out-of-scope lists). Consult the matching roadmap before planning or implementing any change in that part; treat conflicts between a roadmap and this overview as a signal to flag, not silently resolve.
