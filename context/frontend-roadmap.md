@@ -27,13 +27,12 @@ Repo conventions: `/app` routes, `/components/ui` (skinned primitives), `/compon
 
 ## 2. Design Direction (proposal — Ali overrides freely)
 
-**Concept: "the dossier."** Handler is a spy-craft name; the interface borrows the calm authority of an intelligence briefing crossed with a modern banking app. Employees (agents) have files, clearance levels, and allowances. The product should feel *in control* — quiet surfaces, one loud moment (the red block).
+**Concept: "the dossier."** Handler is a spy-craft name; the interface borrows the calm authority of an intelligence briefing crossed with a modern banking app. Employees (agents) have files, clearance levels, and allowances. The product should feel *in control* — quiet surfaces, deliberate status color throughout. A blocked action is the policy working correctly, not an alarm — it renders calm (slate), not red; red is reserved exclusively for genuine failures (a co-sign that didn't submit, a real error), never for a blocked/expected outcome.
 
-**Tokens (starting point):**
-- **Color:** `--paper #F7F6F2` (light base — banking apps are light; dark mode is a cut), `--ink #1C2321` (deep green-black text), `--field #2E4B3F` (primary — banker's green, trust without crypto-neon), `--signal-approve #2E7D4F`, `--signal-block #C6392F` (the villain color; reserved exclusively for blocks/freezes so it lands hard on video), `--badge-gold #B08D2E` (verified trust tier).
+**Tokens:** the canonical token set is the ported Handler Design System (`apps/web/app/globals.css`, from the `Handler Design System` Claude Design canvas) — `--surface-*`, `--text-*`, `--interactive-*`, and the semantic status quartet `--status-approved/-pending/-blocked/-error-*` (blocked → slate, error → red; see the canvas `readme.md`'s "Semantic status" section for the rationale). Treat that file's names as canonical; don't reintroduce the earlier `--paper`/`--ink`/`--field`/`--signal-approve`/`--signal-block`/`--badge-gold` naming — it predates the actual canvas and is superseded.
 - **Type:** one family, two voices — a grotesque with personality (e.g., *Söhne*, *General Sans*, or *Inter Tight* as fallback) with tight display sizes for balances and generous 15–16px body. Numbers always tabular-lining. No all-caps labels, no eyebrow labels.
 - **Layout:** responsive, not a fixed mobile frame. Below `md` (~768px): single-column, left-aligned, full-width content — the mobile-web experience the demo video is shot on. At `md` and up: content reflows into a wider layout — a max-w ~1100px centered container, the payroll/activity lists gaining breathing room (e.g. two-column agent grid or a persistent detail pane) rather than just stretching a phone column wide. Structure via spacing and weight, not card-borders-on-everything; the *notification cards* are the only heavily-carded element at any breakpoint, which makes them the signature.
-- **Motion budget:** exactly two orchestrated moments — (1) a notification card sliding in with a soft haptic-style bounce, (2) the block moment: red card + brief screen-edge pulse. Everything else is instant or answers a tap.
+- **Motion budget:** exactly two orchestrated moments — (1) a notification card sliding in with a soft haptic-style bounce, (2) the block moment: the same slide-in, slate-colored — no color escalation; the policy just worked as designed. Everything else is instant or answers a tap.
 
 **Signature element:** the notification card. It is the product's voice ("🟢 Approved: swap $40 USDC→ETH", "🔴 Blocked: unverified agent requested $500"). Spend the design boldness there; keep everything else disciplined.
 
@@ -61,7 +60,7 @@ Navigation: two-tab bar (Payroll · Activity) + a floating "Hire agent" action. 
 ### 4.1 Payroll (home) — *the beauty shot*
 - Header: total under management + "protected by Handler" line.
 - Agent rows: avatar, name, trust badge, spent-today vs. allowance as a slim progress bar, status dot (active / frozen / pending approval).
-- Swipe or long-press → Freeze (instant, red confirmation).
+- Swipe or long-press → Freeze (instant, calm-slate confirmation — freezing is a deliberate control action, not an alarm).
 - Empty state: "No agents on payroll yet. Hire your first." → /hire. (Empty states get real copy — the showcase screenshots may include them.)
 
 ### 4.2 Hire flow (onboarding) — *the "15 seconds to safety" demo beat*
@@ -79,7 +78,7 @@ Navigation: two-tab bar (Payroll · Activity) + a floating "Hire agent" action. 
 - **Deny** = one tap. **Approve** = routes through the Ledger signing flow (clear-signing surfaced: show what the device shows). This screen is partner-track evidence for Ledger — screenshot-ready.
 
 ### 4.5 Activity feed
-- Chronological cards, filter chips: All / Blocked / Pending. Blocked items keep their red left edge permanently — the feed becomes a visible security record.
+- Chronological cards, filter chips: All / Blocked / Pending. Blocked items keep their slate left edge permanently — the feed becomes a visible security record.
 
 ### 4.6 Notifications layer (cross-screen)
 - In-app toast-cards (top slide-in) driven by the activity poller; tapping a pending card deep-links to /approve/[tx].
@@ -102,7 +101,7 @@ Navigation: two-tab bar (Payroll · Activity) + a floating "Hire agent" action. 
 `/demo` director screen (phone #2 or laptop) with buttons that trigger the scripted beats:
 1. **"Start workday"** — good agent begins rebalancing (real testnet txs, pre-funded).
 2. **"Hire subcontractor"** — good agent pays a verified agent (machine-to-machine beat).
-3. **"Send the villain"** — zero-reputation agent attempts the $500 charge → wallet's `tryExecute()` blocks it and emits `ExecutionBlocked` on-chain (a real, explorer-visible tx — see contracts roadmap §2.1) → red card on the hero phone.
+3. **"Send the villain"** — zero-reputation agent attempts the $500 charge → wallet's `tryExecute()` blocks it and emits `ExecutionBlocked` on-chain (a real, explorer-visible tx — see contracts roadmap §2.1) → calm slate blocked card on the hero phone — the villain beat lands on the policy visibly working, not a color spike.
 4. **"Retry over threshold"** — verified agent requests above co-sign cap → pending card → approval sheet → Ledger.
 Plus **Reset** — restores balances/state for retakes (video will need 5+ takes; one tap, < 30s). Beats 1–4 map to backend `POST /demo/beat/:n`; Reset maps to `POST /demo/reset`.
 
@@ -132,10 +131,10 @@ Shared risk rule: any day-4+ slip eats polish, never the demo engine. If forced 
 
 - [ ] Every screen tested at 390×844 (iPhone, the recording resolution) **and** at a desktop width (≥1280px) — no horizontal scroll, no orphaned mobile-only spacing at either end
 - [ ] No hex addresses, no jargon, no dev artifacts visible anywhere on the demo path
-- [ ] Red reserved exclusively for block/freeze; first red in the video is the villain beat
+- [ ] Blocked actions render calm slate, never red; red appears only for a genuine failure (if it appears at all in the demo) — the villain beat lands on the deliberate calm, not a color spike
 - [ ] Loading states never appear during demo beats (pre-warm + optimistic UI on approve/deny)
 - [ ] Reset → full clean state in one tap, < 30 seconds
-- [ ] Screenshots exported for the showcase page: Payroll, Hire step 2, red block card, approval sheet (Ledger)
+- [ ] Screenshots exported for the showcase page: Payroll, Hire step 2, slate block card, approval sheet (Ledger)
 - [ ] Reduced-motion respected; focus states visible (judges sometimes open the live app — it should survive a keyboard)
 - [ ] Live deployment link works logged-out with a "Try the demo" seeded mode
 
