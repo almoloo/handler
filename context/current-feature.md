@@ -13,4 +13,4 @@ one.
 
 ## History
 
-- No entries yet.
+- **Minimal Prisma schema + GET /health endpoint for apps/api** — fix: unblocks the paused Coolify deployment feature, which needs something real to migrate and health-check inside the api container (Completed)

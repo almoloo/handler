@@ -1,0 +1,16 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+model DemoRun {
+  id        String   @id @default(cuid())
+  beat      Int
+  status    String
+  log       Json
+  createdAt DateTime @default(now())
+}
