@@ -14,13 +14,15 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
-RUN pnpm --filter api build
-# prisma.config.ts requires DATABASE_URL to be resolvable just to load the
-# config, even though `generate` never connects to a database — a
+# Must run before `nest build` — src/prisma/prisma.service.ts imports the
+# generated client, so tsc fails on a fresh checkout without it.
+# prisma.config.ts also requires DATABASE_URL to be resolvable just to load
+# the config, even though `generate` never connects to a database — a
 # placeholder is enough here; the real value is supplied at container
 # runtime for `migrate deploy`.
 RUN DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder" \
     pnpm --filter api exec prisma generate
+RUN pnpm --filter api build
 RUN pnpm --filter api deploy --prod /app/deploy
 
 FROM node:22-slim AS runtime
