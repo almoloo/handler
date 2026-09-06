@@ -42,7 +42,7 @@ export function Badge({ status = "neutral", dot = true, children }: BadgeProps) 
 
   return (
     <span
-      className={`inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[var(--text-xs)] font-[var(--weight-medium)] leading-none ${styles.container}`}
+      className={`inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[length:var(--text-xs)] font-[var(--weight-medium)] leading-none ${styles.container}`}
     >
       {dot && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${styles.dot}`} />}
       {children}

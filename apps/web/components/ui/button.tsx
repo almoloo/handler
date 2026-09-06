@@ -12,9 +12,9 @@ export interface ButtonProps {
 }
 
 const SIZE_CLASSES: Record<NonNullable<ButtonProps["size"]>, string> = {
-  sm: "h-8 gap-1.5 px-3 text-[var(--text-sm)]",
-  md: "h-[38px] gap-2 px-4 text-[var(--text-base)]",
-  lg: "h-11 gap-2 px-5 text-[var(--text-md)]",
+  sm: "h-8 gap-1.5 px-3 text-[length:var(--text-sm)]",
+  md: "h-[38px] gap-2 px-4 text-[length:var(--text-base)]",
+  lg: "h-11 gap-2 px-5 text-[length:var(--text-md)]",
 };
 
 const VARIANT_CLASSES: Record<NonNullable<ButtonProps["variant"]>, string> = {
