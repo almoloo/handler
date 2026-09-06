@@ -13,17 +13,16 @@ one.
 - [x] 4d. Feedback components — Banner, EmptyState, ProgressBar, Toast, Tooltip — Completed
 - [x] 4e. Navigation components — FilterChips, NavItem, Stepper, Tabs — Completed
 - [x] 4f. Overlay components — Dialog, Menu — Completed
-- [ ] 4g. Data & Trust components — Card, ListRow, StatCard, Table, TrustIndicator
+- [x] 4g. Data & Trust components — Card, ListRow, StatCard, Table, TrustIndicator — Completed
 
-Each later sub-feature implements its components with HeadlessUI where a
-primitive exists, skinned to the tokens from 4a, matching the prop contracts
-recorded in the design system's `_adherence.oxlintrc.json` (e.g. `Button`
-variant ∈ `primary|secondary|ghost|danger`, `Badge`/`Toast`/`Banner`/`ListRow`
-status ∈ `approved|pending|blocked|error(|neutral)`, `TrustIndicator` level ∈
-`new|building|established`). HeadlessUI has no primitive for **Slider** (use a
-native `<input type="range">`) or **Tooltip** (build on `Popover` + `Transition`)
-— carry that into 4c/4d. Pass the sub-feature letter (e.g. `4b`) back into
-`/feature` when ready for the next one.
+**All 7 sub-features are complete — the 4a–4g design-system rollout is done.**
+Contrary to this note's original assumption, none of the 27 components
+actually use HeadlessUI except `Dialog` (built on it deliberately for its
+focus-trap/portal/Escape/ARIA behavior, not because the canvas used it — the
+canvas didn't). All 27 components are exported from
+`apps/web/components/ui/index.ts` but remain unconsumed by any screen —
+building the first real screen (Payroll, per `frontend-roadmap.md` §7 day 2)
+is the natural next `/feature`.
 
 ---
 
@@ -41,3 +40,4 @@ native `<input type="range">`) or **Tooltip** (build on `Popover` + `Transition`
 - **4d. Feedback components — Banner, EmptyState, ProgressBar, Toast, Tooltip** — port these 5 primitives from the canvas into components/ui/, using the canvas's plain Tooltip implementation rather than HeadlessUI, applying the text-[length:...] fix from the start; audit also caught and fixed missing `type="button"` on Banner/Toast's dismiss buttons (Completed)
 - **4e. Navigation components — FilterChips, NavItem, Stepper, Tabs** — port these 4 primitives from the canvas into components/ui/, fixing a hardcoded #fff in Stepper to var(--gray-0) and applying type="button" proactively; caught and fixed a border-none/border-b-2 conflict in Tabs during implementation (Completed)
 - **4f. Overlay components — Dialog, Menu** — port Menu as a straight canvas port; build Dialog on @headlessui/react's real Dialog primitive instead (focus trap, portal, Escape, ARIA) since it's the Ledger co-sign confirmation screen, not a cosmetic primitive; audit verified the HeadlessUI claims directly against its shipped source (Completed)
+- **4g. Data & Trust components — Card, ListRow, StatCard, Table, TrustIndicator** — port the final 5 primitives from the canvas into components/ui/, generalizing a Tailwind default-value collision rule (rounded-*/tracking-* etc. must use [var(--x)], never the bare utility) found via Table's tracking-wider; completes the 4a–4g design-system rollout. Note: Table's div-based markup (matching the canvas) lacks semantic `<table>` structure — same inherited, deferred-to-day-8 gap class as Menu/NavItem/Tooltip, despite this feature having no clickable elements otherwise (Completed)
