@@ -41,7 +41,7 @@ Built for **ETHGlobal ETHOnline 2026** (Sept 4–16, async), targeting the Ledge
 - Approval sheet: decoded plain-English intent, one-tap deny, Ledger-signed approve.
 
 ### Out of scope (explicitly, for the hackathon window)
-Multi-chain, mobile-native app, full x402 integration, ERC-4337/account abstraction, on-chain reputation *writing*, desktop-first layout, dark mode.
+Multi-chain, mobile-native app, full x402 integration, ERC-4337/account abstraction, on-chain reputation *writing*, dark mode.
 
 ---
 

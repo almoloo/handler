@@ -2,7 +2,7 @@
 
 **Event:** ETHOnline 2026 (Sept 4–16, async) · **Submission:** Sun Sept 13, 12:00 pm EDT
 **Positioning:** The banking app for your AI — hire agents like employees, give them a card with rules, get a buzz when something's off.
-**Primary deliverable:** a mobile-web app whose screens carry the 3-minute demo video. Every frontend decision is judged by one question: *does this make the video better?*
+**Primary deliverable:** a responsive web app — first-class on mobile (the phone is the co-star of the demo video) and equally usable on desktop — whose screens carry the 3-minute demo video. Every frontend decision is judged by one question: *does this make the video better?*
 
 ---
 
@@ -19,7 +19,7 @@
 | Data | TanStack Query against **backend REST + SSE** (see backend roadmap) | Backend indexes & decodes chain once; no client log-polling |
 | State | Zustand (one store: agents, policies, activity, demo script) | Light, predictable, easy to drive demo mode |
 | Charts | None | Cut — numbers and badges tell the story faster |
-| Deploy | Vercel, mobile-web only | Phone is the co-star of the video |
+| Deploy | Vercel, responsive web (mobile + desktop) | Phone is the co-star of the video; desktop must hold up for judges reviewing on a laptop |
 
 Repo conventions: `/app` routes, `/components/ui` (skinned primitives), `/components/domain` (AgentCard, TrustBadge, ActivityItem, ApprovalSheet), `/lib/contracts` (typed ABIs via wagmi codegen), `/lib/demo` (scripted demo engine — first-class code, not an afterthought).
 
@@ -32,7 +32,7 @@ Repo conventions: `/app` routes, `/components/ui` (skinned primitives), `/compon
 **Tokens (starting point):**
 - **Color:** `--paper #F7F6F2` (light base — banking apps are light; dark mode is a cut), `--ink #1C2321` (deep green-black text), `--field #2E4B3F` (primary — banker's green, trust without crypto-neon), `--signal-approve #2E7D4F`, `--signal-block #C6392F` (the villain color; reserved exclusively for blocks/freezes so it lands hard on video), `--badge-gold #B08D2E` (verified trust tier).
 - **Type:** one family, two voices — a grotesque with personality (e.g., *Söhne*, *General Sans*, or *Inter Tight* as fallback) with tight display sizes for balances and generous 15–16px body. Numbers always tabular-lining. No all-caps labels, no eyebrow labels.
-- **Layout:** single-column mobile (max-w ~430px centered on desktop with a device-frame border so even a laptop viewing reads as a phone). Left-aligned. Structure via spacing and weight, not card-borders-on-everything; the *notification cards* are the only heavily-carded element, which makes them the signature.
+- **Layout:** responsive, not a fixed mobile frame. Below `md` (~768px): single-column, left-aligned, full-width content — the mobile-web experience the demo video is shot on. At `md` and up: content reflows into a wider layout — a max-w ~1100px centered container, the payroll/activity lists gaining breathing room (e.g. two-column agent grid or a persistent detail pane) rather than just stretching a phone column wide. Structure via spacing and weight, not card-borders-on-everything; the *notification cards* are the only heavily-carded element at any breakpoint, which makes them the signature.
 - **Motion budget:** exactly two orchestrated moments — (1) a notification card sliding in with a soft haptic-style bounce, (2) the block moment: red card + brief screen-edge pulse. Everything else is instant or answers a tap.
 
 **Signature element:** the notification card. It is the product's voice ("🟢 Approved: swap $40 USDC→ETH", "🔴 Blocked: unverified agent requested $500"). Spend the design boldness there; keep everything else disciplined.
@@ -52,7 +52,7 @@ Repo conventions: `/app` routes, `/components/ui` (skinned primitives), `/compon
 /demo        → Hidden: demo director controls (never linked in nav)
 ```
 
-Navigation: two-tab bottom bar (Payroll · Activity) + a floating "Hire agent" action. No settings screen — cut.
+Navigation: two-tab bar (Payroll · Activity) + a floating "Hire agent" action. Bottom-fixed below `md` (mobile pattern); at `md` and up, the same `NavItem`s move into a top/side bar instead of floating over content — same component, position controlled by breakpoint, not a second nav implementation. No settings screen — cut.
 
 ---
 
@@ -121,7 +121,7 @@ Rule: every beat produces a *real* on-chain transaction. The script controls tim
 | 5 | Agent file + freeze + policy sentences; USD framing via `GET /prices`; switch hire flow to the factory | Policy round-trips on-chain |
 | 6 | Approval sheet + Ledger co-sign path | Full pending→approve/deny loop works |
 | 7 | Demo engine + villain beat + reset; **feature freeze at EOD** | Beats 1–4 + reset run back-to-back clean |
-| 8 | Polish pass: motion budget, copy pass, empty/error states, device-frame, seed data | Zero known visual bugs on iPhone-width |
+| 8 | Polish pass: motion budget, copy pass, empty/error states, responsive breakpoint pass, seed data | Zero known visual bugs on iPhone-width or desktop-width |
 | 9 | Video day: script, record on the real app, edit, submit **early** | Submitted before the deadline rush |
 
 Shared risk rule: any day-4+ slip eats polish, never the demo engine. If forced to cut, cut in this order: activity filters → agent file niceties → advanced allowance disclosure. Never cut: notification cards, hire flow, approval sheet, reset button.
@@ -130,7 +130,7 @@ Shared risk rule: any day-4+ slip eats polish, never the demo engine. If forced 
 
 ## 8. Quality Floor & Video-Readiness Checklist
 
-- [ ] Every screen tested at 390×844 (iPhone) — the recording resolution
+- [ ] Every screen tested at 390×844 (iPhone, the recording resolution) **and** at a desktop width (≥1280px) — no horizontal scroll, no orphaned mobile-only spacing at either end
 - [ ] No hex addresses, no jargon, no dev artifacts visible anywhere on the demo path
 - [ ] Red reserved exclusively for block/freeze; first red in the video is the villain beat
 - [ ] Loading states never appear during demo beats (pre-warm + optimistic UI on approve/deny)
@@ -143,4 +143,4 @@ Shared risk rule: any day-4+ slip eats polish, never the demo engine. If forced 
 
 ## 9. Explicitly Out of Frontend Scope
 
-Desktop layout · dark mode · real push notifications · settings · multi-wallet · charts · i18n · x402 UI (roadmap slide only) · advanced policy builder (slider + 3 toggles is the builder).
+Dark mode · real push notifications · settings · multi-wallet · charts · i18n · x402 UI (roadmap slide only) · advanced policy builder (slider + 3 toggles is the builder) · desktop-specific chrome beyond the responsive reflow in §2/§3 (no desktop-only nav items, no hover-only interactions that have no touch equivalent).
