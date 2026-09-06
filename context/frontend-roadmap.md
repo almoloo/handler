@@ -12,7 +12,7 @@
 |---|---|---|
 | Framework | Next.js 15 (App Router) + TypeScript | Home turf; fastest path to polish |
 | Styling | Tailwind CSS + CSS variables for tokens | Speed + a real token system |
-| Components | Headless (Radix primitives) + custom skin | No template look; full design control |
+| Components | Headless (HeadlessUI primitives) + custom skin | No template look; full design control; native Tailwind integration |
 | Animation | Framer Motion | Notification cards + approval moments need choreography |
 | Wallet | wagmi + viem | Wallet connection + **owner-signed txs** (hire, freeze, approve, deny) |
 | Ledger | Ledger DMK / device-signing kit via wagmi connector | The owner wallet — co-sign flow (partner track #1) |
