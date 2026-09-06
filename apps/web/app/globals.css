@@ -99,8 +99,9 @@
 
   --focus-ring: var(--brand-400);
 
-  /* Semantic status — blocked is slate, never red; red is reserved for
-     genuine errors (see readme.md content rules). */
+  /* Semantic status — red is reserved exclusively for blocked/freeze (the
+     "villain color" per frontend-roadmap.md §2, so it lands hard on video);
+     generic errors use slate instead. */
   --status-approved-bg: var(--green-50);
   --status-approved-border: var(--green-200);
   --status-approved-fg: var(--green-700);
@@ -111,15 +112,15 @@
   --status-pending-fg: var(--amber-700);
   --status-pending-icon: var(--amber-600);
 
-  --status-blocked-bg: var(--slate-50);
-  --status-blocked-border: var(--slate-200);
-  --status-blocked-fg: var(--slate-700);
-  --status-blocked-icon: var(--slate-600);
+  --status-blocked-bg: var(--red-50);
+  --status-blocked-border: var(--red-200);
+  --status-blocked-fg: var(--red-700);
+  --status-blocked-icon: var(--red-600);
 
-  --status-error-bg: var(--red-50);
-  --status-error-border: var(--red-200);
-  --status-error-fg: var(--red-700);
-  --status-error-icon: var(--red-600);
+  --status-error-bg: var(--slate-50);
+  --status-error-border: var(--slate-200);
+  --status-error-fg: var(--slate-700);
+  --status-error-icon: var(--slate-600);
 
   --chart-1: var(--brand-500);
   --chart-2: var(--green-500);
