@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body{margin:0}
+    a{text-decoration:none}
+  </style>
+</helmet>
+<div style="--paper:#F7F6F2;--ink:#1C2321;--field:#2E4B3F;--field-hover:#26463A;--approve:#2E7D4F;--approve-bg:#EAF3EC;--approve-border:#BFE0CB;--block:#C6392F;--block-bg:#7A241D;--gold:#B08D2E;--hairline:oklch(from #1C2321 l c h / 0.14);--hairline-2:oklch(from #1C2321 l c h / 0.22);--ink-60:oklch(from #1C2321 l c h / 0.62);--ink-40:oklch(from #1C2321 l c h / 0.4); font-family:'Inter Tight',sans-serif; color:var(--ink); background:#E7E4DC; min-height:100vh; padding:64px 40px; display:flex; gap:64px; align-items:flex-start; justify-content:center; flex-wrap:wrap; font-feature-settings:'tnum' 1,'lnum' 1; -webkit-font-smoothing:antialiased;">
+
+  <!-- ===================== MOBILE FRAME (390) ===================== -->
+  <div style="display:flex; flex-direction:column; gap:14px;">
+    <div style="font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-40);">Mobile · 390px</div>
+    <div style="width:390px; background:var(--paper); box-shadow:0 20px 44px oklch(from #1C2321 l c h / 0.16); overflow:hidden;">
+
+      <!-- Header -->
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:18px 20px; border-bottom:1px solid var(--hairline);">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="width:22px; height:22px; border-radius:6px; background:var(--ink); flex-shrink:0;"></div>
+          <span style="font-size:17px; font-weight:700; letter-spacing:-.01em;">Handler</span>
+        </div>
+        <a href="#" style="background:var(--field); color:var(--paper); font-size:13px; font-weight:600; padding:9px 15px; border-radius:8px; letter-spacing:-.005em;">Launch app</a>
+      </div>
+
+      <!-- Hero -->
+      <div style="padding:36px 20px 32px; border-bottom:1px solid var(--hairline);">
+        <h1 style="margin:0 0 14px; font-size:32px; line-height:1.1; font-weight:800; letter-spacing:-.02em;">The banking app for your AI.</h1>
+        <p style="margin:0 0 22px; font-size:15px; line-height:1.55; color:var(--ink-60); max-width:44ch;">Agents are getting real spending power. Most wallets only offer static limits. Handler's limits know who they're dealing with.</p>
+        <a href="#" style="display:inline-block; background:var(--field); color:var(--paper); font-size:15px; font-weight:600; padding:13px 22px; border-radius:8px; letter-spacing:-.005em; margin-bottom:30px;">Launch app</a>
+
+        <!-- notification card stack -->
+        <div style="position:relative; padding:18px 4px 6px;">
+          <div style="background:var(--approve-bg); border:1px solid var(--approve-border); border-radius:10px; padding:14px 16px; display:flex; align-items:center; gap:12px; transform:rotate(-1.5deg); box-shadow:0 8px 18px oklch(from #1C2321 l c h / 0.08);">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2E7D4F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M4 12l5 5L20 6"></path></svg>
+            <div>
+              <div style="font-size:13.5px; font-weight:600; color:var(--approve);">Approved · $180 payment</div>
+              <div style="font-size:11.5px; color:var(--ink-60); margin-top:1px;">Within daily allowance</div>
+            </div>
+          </div>
+          <div style="background:var(--block); color:var(--paper); border-radius:10px; padding:14px 16px; display:flex; align-items:center; gap:12px; transform:rotate(1.5deg); margin-top:-8px; margin-left:22px; box-shadow:0 10px 22px oklch(from #C6392F l c h / 0.3); position:relative; z-index:1;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F7F6F2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="9"></circle><path d="M5.5 5.5l13 13"></path></svg>
+            <div>
+              <div style="font-size:13.5px; font-weight:600;">Blocked by policy</div>
+              <div style="font-size:11.5px; opacity:.75; margin-top:1px;">Not on the allowlist</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Features -->
+      <div style="padding:32px 20px; border-bottom:1px solid var(--hairline); display:flex; flex-direction:column; gap:24px;">
+        <div style="display:flex; gap:14px;">
+          <div style="width:38px; height:38px; border-radius:9px; border:1px solid var(--hairline-2); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2E4B3F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5l7.5 3.4v5.4c0 5-3.2 8.6-7.5 10.2-4.3-1.6-7.5-5.2-7.5-10.2V5.9L12 2.5z"></path><path d="M9 12.2l2.1 2.1 4-4.4"></path></svg>
+          </div>
+          <div>
+            <div style="font-size:15.5px; font-weight:700; letter-spacing:-.005em;">Guarded spending</div>
+            <div style="font-size:13.5px; color:var(--ink-60); margin-top:3px; line-height:1.45;">Caps, allowlists, and a human co-sign before anything unusual clears.</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:14px;">
+          <div style="width:38px; height:38px; border-radius:9px; border:1px solid var(--hairline-2); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2E4B3F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 15.5a7.5 7.5 0 1 1 15 0"></path><path d="M12 15.5l3.6-4.6"></path><circle cx="12" cy="15.5" r="1"></circle></svg>
+          </div>
+          <div>
+            <div style="font-size:15.5px; font-weight:700; letter-spacing:-.005em;">Trust-aware policy</div>
+            <div style="font-size:13.5px; color:var(--ink-60); margin-top:3px; line-height:1.45;">Limits that tighten or relax based on who your agent is paying.</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:14px;">
+          <div style="width:38px; height:38px; border-radius:9px; border:1px solid var(--hairline-2); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2E4B3F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.5 4.5 14h5.7l-1 7.5 8.5-11.5h-5.7l1-7.5z"></path></svg>
+          </div>
+          <div>
+            <div style="font-size:15.5px; font-weight:700; letter-spacing:-.005em;">Real autonomy</div>
+            <div style="font-size:13.5px; color:var(--ink-60); margin-top:3px; line-height:1.45;">Agents still act freely — swaps, payments, hiring other agents — inside your rules.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <div style="padding:32px 20px; border-bottom:1px solid var(--hairline);">
+        <div style="font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-40); margin-bottom:20px;">How it works</div>
+        <div style="display:flex; flex-direction:column; gap:20px;">
+          <div style="display:flex; gap:14px;">
+            <div style="font-size:13px; font-weight:700; color:var(--field); flex-shrink:0; width:22px;">01</div>
+            <div><div style="font-size:15px; font-weight:600;">Hire an agent</div><div style="font-size:13px; color:var(--ink-60); margin-top:3px; line-height:1.45;">Bring any agent onto Handler and give it a name your team recognizes.</div></div>
+          </div>
+          <div style="display:flex; gap:14px;">
+            <div style="font-size:13px; font-weight:700; color:var(--field); flex-shrink:0; width:22px;">02</div>
+            <div><div style="font-size:15px; font-weight:600;">Set its allowance and rules</div><div style="font-size:13px; color:var(--ink-60); margin-top:3px; line-height:1.45;">Daily caps, allowed counterparties, and when a co-sign is required.</div></div>
+          </div>
+          <div style="display:flex; gap:14px;">
+            <div style="font-size:13px; font-weight:700; color:var(--field); flex-shrink:0; width:22px;">03</div>
+            <div><div style="font-size:15px; font-weight:600;">Handler enforces it automatically</div><div style="font-size:13px; color:var(--ink-60); margin-top:3px; line-height:1.45;">Every action is checked against the policy before it clears — no exceptions.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Trust strip -->
+      <div style="padding:26px 20px; border-bottom:1px solid var(--hairline); text-align:center;">
+        <div style="font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-40); margin-bottom:14px;">Built with</div>
+        <div style="display:flex; justify-content:center; gap:18px; flex-wrap:wrap; font-size:13.5px; font-weight:600; color:var(--ink-60);">
+          <span>Chainlink</span><span style="color:var(--hairline-2);">·</span><span>Ledger</span><span style="color:var(--hairline-2);">·</span><span>1inch</span>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="padding:22px 20px; display:flex; flex-direction:column; gap:8px; align-items:flex-start;">
+        <div style="display:flex; align-items:center; gap:7px;">
+          <div style="width:16px; height:16px; border-radius:4px; background:var(--ink);"></div>
+          <span style="font-size:14px; font-weight:700; letter-spacing:-.01em;">Handler</span>
+        </div>
+        <div style="font-size:12px; color:var(--ink-40);">An ETHGlobal ETHOnline 2026 project</div>
+        <a href="#" style="font-size:12.5px; font-weight:600; color:var(--field);">Open app →</a>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===================== DESKTOP FRAME (1280) ===================== -->
+  <div style="display:flex; flex-direction:column; gap:14px;">
+    <div style="font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-40);">Desktop · 1280px</div>
+    <div style="width:1280px; background:var(--paper); box-shadow:0 20px 44px oklch(from #1C2321 l c h / 0.16); overflow:hidden;">
+
+      <!-- Header -->
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:22px 64px; border-bottom:1px solid var(--hairline);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="width:26px; height:26px; border-radius:7px; background:var(--ink); flex-shrink:0;"></div>
+          <span style="font-size:19px; font-weight:700; letter-spacing:-.01em;">Handler</span>
+        </div>
+        <a href="#" style="background:var(--field); color:var(--paper); font-size:14.5px; font-weight:600; padding:11px 20px; border-radius:8px; letter-spacing:-.005em;">Launch app</a>
+      </div>
+
+      <!-- Hero -->
+      <div style="display:grid; grid-template-columns:1.05fr 0.95fr; gap:56px; align-items:center; padding:88px 64px; border-bottom:1px solid var(--hairline);">
+        <div>
+          <h1 style="margin:0 0 20px; font-size:56px; line-height:1.06; font-weight:800; letter-spacing:-.025em; max-width:12ch;">The banking app for your AI.</h1>
+          <p style="margin:0 0 30px; font-size:18px; line-height:1.55; color:var(--ink-60); max-width:42ch;">Agents are getting real spending power. Most wallets only offer static limits. Handler's limits know who they're dealing with.</p>
+          <a href="#" style="display:inline-block; background:var(--field); color:var(--paper); font-size:16px; font-weight:600; padding:15px 26px; border-radius:8px; letter-spacing:-.005em;">Launch app</a>
+        </div>
+        <div style="position:relative; padding:30px 20px;">
+          <div style="background:var(--approve-bg); border:1px solid var(--approve-border); border-radius:12px; padding:20px 22px; display:flex; align-items:center; gap:16px; transform:rotate(-2deg); box-shadow:0 14px 30px oklch(from #1C2321 l c h / 0.08); max-width:360px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E7D4F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M4 12l5 5L20 6"></path></svg>
+            <div>
+              <div style="font-size:16px; font-weight:600; color:var(--approve);">Approved · $180 payment</div>
+              <div style="font-size:13px; color:var(--ink-60); margin-top:2px;">Within daily allowance</div>
+            </div>
+          </div>
+          <div style="background:var(--block); color:var(--paper); border-radius:12px; padding:20px 22px; display:flex; align-items:center; gap:16px; transform:rotate(2deg); margin-top:-14px; margin-left:60px; box-shadow:0 16px 34px oklch(from #C6392F l c h / 0.3); position:relative; z-index:1; max-width:360px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F7F6F2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="9"></circle><path d="M5.5 5.5l13 13"></path></svg>
+            <div>
+              <div style="font-size:16px; font-weight:600;">Blocked by policy</div>
+              <div style="font-size:13px; opacity:.75; margin-top:2px;">Not on the allowlist</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Features -->
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:48px; padding:64px; border-bottom:1px solid var(--hairline);">
+        <div>
+          <div style="width:46px; height:46px; border-radius:10px; border:1px solid var(--hairline-2); display:flex; align-items:center; justify-content:center; margin-bottom:18px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E4B3F" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5l7.5 3.4v5.4c0 5-3.2 8.6-7.5 10.2-4.3-1.6-7.5-5.2-7.5-10.2V5.9L12 2.5z"></path><path d="M9 12.2l2.1 2.1 4-4.4"></path></svg>
+          </div>
+          <div style="font-size:18px; font-weight:700; letter-spacing:-.005em; margin-bottom:8px;">Guarded spending</div>
+          <div style="font-size:15px; color:var(--ink-60); line-height:1.55;">Caps, allowlists, and a human co-sign before anything unusual clears.</div>
+        </div>
+        <div>
+          <div style="width:46px; height:46px; border-radius:10px; border:1px solid var(--hairline-2); display:flex; align-items:center; justify-content:center; margin-bottom:18px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E4B3F" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 15.5a7.5 7.5 0 1 1 15 0"></path><path d="M12 15.5l3.6-4.6"></path><circle cx="12" cy="15.5" r="1"></circle></svg>
+          </div>
+          <div style="font-size:18px; font-weight:700; letter-spacing:-.005em; margin-bottom:8px;">Trust-aware policy</div>
+          <div style="font-size:15px; color:var(--ink-60); line-height:1.55;">Limits that tighten or relax based on who your agent is paying.</div>
+        </div>
+        <div>
+          <div style="width:46px; height:46px; border-radius:10px; border:1px solid var(--hairline-2); display:flex; align-items:center; justify-content:center; margin-bottom:18px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E4B3F" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2.5 4.5 14h5.7l-1 7.5 8.5-11.5h-5.7l1-7.5z"></path></svg>
+          </div>
+          <div style="font-size:18px; font-weight:700; letter-spacing:-.005em; margin-bottom:8px;">Real autonomy</div>
+          <div style="font-size:15px; color:var(--ink-60); line-height:1.55;">Agents still act freely — swaps, payments, hiring other agents — inside your rules.</div>
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <div style="padding:56px 64px; border-bottom:1px solid var(--hairline);">
+        <div style="font-size:12px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-40); margin-bottom:32px;">How it works</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:40px;">
+          <div style="border-top:2px solid var(--field); padding-top:16px;">
+            <div style="font-size:13px; font-weight:700; color:var(--field); margin-bottom:10px;">01</div>
+            <div style="font-size:17px; font-weight:600; margin-bottom:8px;">Hire an agent</div>
+            <div style="font-size:14.5px; color:var(--ink-60); line-height:1.55;">Bring any agent onto Handler and give it a name your team recognizes.</div>
+          </div>
+          <div style="border-top:2px solid var(--field); padding-top:16px;">
+            <div style="font-size:13px; font-weight:700; color:var(--field); margin-bottom:10px;">02</div>
+            <div style="font-size:17px; font-weight:600; margin-bottom:8px;">Set its allowance and rules</div>
+            <div style="font-size:14.5px; color:var(--ink-60); line-height:1.55;">Daily caps, allowed counterparties, and when a co-sign is required.</div>
+          </div>
+          <div style="border-top:2px solid var(--field); padding-top:16px;">
+            <div style="font-size:13px; font-weight:700; color:var(--field); margin-bottom:10px;">03</div>
+            <div style="font-size:17px; font-weight:600; margin-bottom:8px;">Handler enforces it automatically</div>
+            <div style="font-size:14.5px; color:var(--ink-60); line-height:1.55;">Every action is checked against the policy before it clears — no exceptions.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Trust strip -->
+      <div style="padding:36px 64px; border-bottom:1px solid var(--hairline); display:flex; align-items:center; justify-content:center; gap:28px;">
+        <div style="font-size:11.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-40);">Built with</div>
+        <div style="display:flex; align-items:center; gap:22px; font-size:15px; font-weight:600; color:var(--ink-60);">
+          <span>Chainlink</span><span style="color:var(--hairline-2);">·</span><span>Ledger</span><span style="color:var(--hairline-2);">·</span><span>1inch</span>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="padding:28px 64px; display:flex; align-items:center; justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="width:18px; height:18px; border-radius:5px; background:var(--ink);"></div>
+          <span style="font-size:15px; font-weight:700; letter-spacing:-.01em;">Handler</span>
+        </div>
+        <div style="font-size:13px; color:var(--ink-40);">An ETHGlobal ETHOnline 2026 project</div>
+        <a href="#" style="font-size:13.5px; font-weight:600; color:var(--field);">Open app →</a>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+</x-dc>
+</body>
+</html>

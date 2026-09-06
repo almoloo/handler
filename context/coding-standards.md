@@ -50,6 +50,7 @@ This repo has three parts with different conventions: `apps/web` (Next.js), `app
 - Routes: `app/[route]/page.tsx` (App Router conventions).
 - Domain components: `components/domain/component-name.tsx` (e.g. `agent-card.tsx`, `trust-badge.tsx`).
 - UI primitives: `components/ui/component-name.tsx`.
+- Marketing/page-specific sections (not reusable, not backed by domain data): `components/marketing/component-name.tsx` (e.g. `landing-hero.tsx`).
 - Hooks: `hooks/use-hook-name.ts`.
 - Contract/demo helpers: `lib/contracts.ts`, `lib/demo.ts`.
 

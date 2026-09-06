@@ -43,12 +43,13 @@ Repo conventions: `/app` routes, `/components/ui` (skinned primitives), `/compon
 ## 3. Information Architecture & Routes
 
 ```
-/            → Payroll (home): agents-as-employees list
-/hire        → Onboarding: 3-step "employ your agent" flow
-/agent/[id]  → Agent file: policy, trust badge, activity, freeze
-/activity    → Full activity feed (approved / blocked / pending)
-/approve/[tx]→ Approval sheet (deep-link target from notification)
-/demo        → Hidden: demo director controls (never linked in nav)
+/                 → Landing (marketing): hero, features, how it works, trust strip. "Launch app" → /app
+/app              → Payroll (home): agents-as-employees list
+/app/hire         → Onboarding: 3-step "employ your agent" flow
+/app/agent/[id]   → Agent file: policy, trust badge, activity, freeze
+/app/activity     → Full activity feed (approved / blocked / pending)
+/app/approve/[tx] → Approval sheet (deep-link target from notification)
+/demo             → Hidden: demo director controls (never linked in nav)
 ```
 
 Navigation: two-tab bar (Payroll · Activity) + a floating "Hire agent" action. Bottom-fixed below `md` (mobile pattern); at `md` and up, the same `NavItem`s move into a top/side bar instead of floating over content — same component, position controlled by breakpoint, not a second nav implementation. No settings screen — cut.

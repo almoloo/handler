@@ -20,9 +20,10 @@ Contrary to this note's original assumption, none of the 27 components
 actually use HeadlessUI except `Dialog` (built on it deliberately for its
 focus-trap/portal/Escape/ARIA behavior, not because the canvas used it — the
 canvas didn't). All 27 components are exported from
-`apps/web/components/ui/index.ts` but remain unconsumed by any screen —
-building the first real screen (Payroll, per `frontend-roadmap.md` §7 day 2)
-is the natural next `/feature`.
+`apps/web/components/ui/index.ts` but remain unconsumed by any screen. The
+marketing landing page (see History) was the first consumer; building the
+real Payroll screen at `/app` (per `frontend-roadmap.md` §7 day 2) is the
+natural next `/feature`.
 
 ---
 
@@ -41,3 +42,4 @@ is the natural next `/feature`.
 - **4e. Navigation components — FilterChips, NavItem, Stepper, Tabs** — port these 4 primitives from the canvas into components/ui/, fixing a hardcoded #fff in Stepper to var(--gray-0) and applying type="button" proactively; caught and fixed a border-none/border-b-2 conflict in Tabs during implementation (Completed)
 - **4f. Overlay components — Dialog, Menu** — port Menu as a straight canvas port; build Dialog on @headlessui/react's real Dialog primitive instead (focus trap, portal, Escape, ARIA) since it's the Ledger co-sign confirmation screen, not a cosmetic primitive; audit verified the HeadlessUI claims directly against its shipped source (Completed)
 - **4g. Data & Trust components — Card, ListRow, StatCard, Table, TrustIndicator** — port the final 5 primitives from the canvas into components/ui/, generalizing a Tailwind default-value collision rule (rounded-*/tracking-* etc. must use [var(--x)], never the bare utility) found via Table's tracking-wider; completes the 4a–4g design-system rollout. Note: Table's div-based markup (matching the canvas) lacks semantic `<table>` structure — same inherited, deferred-to-day-8 gap class as Menu/NavItem/Tooltip, despite this feature having no clickable elements otherwise (Completed)
+- **Marketing landing page at `/`** — build the public marketing homepage from the imported `Handler Landing Page.dc.html` canvas, re-skinned onto the current design-system tokens; moves the future in-app Payroll screen from `/` to `/app` per confirmed scope decision (Completed)
