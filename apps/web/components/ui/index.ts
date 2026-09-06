@@ -59,3 +59,9 @@ export type { StepperProps } from "./stepper";
 
 export { Tabs } from "./tabs";
 export type { TabItem, TabsProps } from "./tabs";
+
+export { Dialog } from "./dialog";
+export type { DialogProps } from "./dialog";
+
+export { Menu } from "./menu";
+export type { MenuItem, MenuProps } from "./menu";
