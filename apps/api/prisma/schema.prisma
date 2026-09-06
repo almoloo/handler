@@ -1,3 +1,16 @@
+// Handler — apps/api Postgres schema.
+//
+// Conventions (load-bearing for every module; see context/current-feature.md history):
+// - Addresses are lowercase 0x strings (VarChar 42); hashes are lowercase (VarChar 66).
+//   Normalize with .toLowerCase() on write, never store checksummed.
+// - USD is always 8-decimal fixed point in a BigInt column (`Usd` suffix). Never Float/Decimal.
+// - Token amounts / wei are raw integers in the token's native decimals, Decimal(78,0) (`Raw` suffix).
+//   Token.decimals is the only source of decimals — never assume 18.
+// - Chain-derived rows are idempotent: ActivityEvent by (txHash, logIndex), PendingApproval.id is the
+//   on-chain bytes32 proposal id, Wallet.address, Policy (walletAddress, sessionKey), IndexerCursor.key.
+// - Copy (summary, trustSummary) is written server-side in plain English and rendered verbatim by the UI.
+// - Private keys are never stored. Agent.keyEnvVar holds the *name* of an env var only.
+
 datasource db {
   provider = "postgresql"
 }
@@ -7,10 +20,401 @@ generator client {
   output   = "../src/generated/prisma"
 }
 
-model DemoRun {
-  id        String   @id @default(cuid())
-  beat      Int
-  status    String
-  log       Json
+// ───────────────────────────── Enums ─────────────────────────────
+
+/// Role the agent plays in the product/demo. HIRED = can be employed by a wallet.
+enum AgentKind {
+  HIRED
+  COUNTERPARTY
+  VILLAIN
+}
+
+/// Mirrors TrustReader.Tier. Ordering for policy checks is FLAGGED(0) < NEW(1) < VERIFIED(2), mapped in code.
+enum TrustTier {
+  VERIFIED
+  NEW
+  FLAGGED
+}
+
+/// Where the current trustTier came from. OVERRIDE mirrors TrustReader.setOverride on-chain.
+enum TrustSource {
+  CHAIN
+  FIXTURE
+  OVERRIDE
+}
+
+/// Feed row types. One row per indexed log or runtime failure; the UI filters All / Blocked / Pending.
+enum ActivityType {
+  WALLET_CREATED
+  HIRED
+  POLICY_UPDATED
+  FROZEN
+  UNFROZEN
+  SWAP
+  AGENT_PAYMENT
+  TRANSFER
+  CONTRACT_CALL
+  BLOCKED
+  PENDING
+  APPROVED
+  DENIED
+  EXPIRED
+  FAILED
+}
+
+/// Classification of a call's target. Mirrors Executed(kind); on ActivityEvent it maps directly onto `type`.
+enum ExecutionKind {
+  SWAP
+  AGENT_PAYMENT
+  TRANSFER
+  CONTRACT_CALL
+}
+
+/// Mirrors the ExecutionBlocked reason enum, one per custom error (contracts roadmap §2.1).
+enum BlockReason {
+  AGENT_FROZEN
+  UNKNOWN_CONTRACT
+  SWAPS_NOT_ALLOWED
+  COUNTERPARTY_BELOW_TIER
+  EXCEEDS_PER_TX_CAP
+  EXCEEDS_DAILY_ALLOWANCE
+  REQUIRES_COSIGN
+  STALE_PRICE
+  OTHER
+}
+
+/// CHAIN rows come from the indexer; RUNTIME rows are written by the agent runtime (e.g. RPC failure before a tx existed).
+enum ActivitySource {
+  CHAIN
+  RUNTIME
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  DENIED
+  EXPIRED
+}
+
+/// How a PendingApproval left PENDING: the owner-signed tx was indexed, or the optional fast-path callback fired first.
+enum ResolutionSource {
+  CHAIN
+  CALLBACK
+}
+
+/// Lifecycle of an agent-runtime intent (backend roadmap §4.2: intent row first, then the tx).
+enum IntentStatus {
+  PLANNED
+  SUBMITTED
+  CONFIRMED
+  BLOCKED
+  FAILED
+}
+
+enum DemoRunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+// ───────────────────────────── Chain identity ─────────────────────────────
+
+/// One HandlerWallet per owner. Indexed from HandlerWalletFactory.WalletCreated. The demo wallet's address also lives in config.
+model Wallet {
+  /// HandlerWallet contract address, lowercase.
+  address       String   @id @db.VarChar(42)
+  chainId       Int
+  /// Owner EOA / Ledger address, lowercase.
+  owner         String   @db.VarChar(42)
+  createdTxHash String?  @db.VarChar(66)
+  createdBlock  BigInt?
+  /// True for the pre-created dev/demo wallet so /demo/reset knows which one to restore.
+  isDemo        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  policies         Policy[]
+  activity         ActivityEvent[]
+  pendingApprovals PendingApproval[]
+  intents          Intent[]
+
+  @@index([owner])
+}
+
+/// Agent catalog + trust cache. Covers hired agents, counterparties, and the villain. The address is the
+/// on-chain identity the agent acts or receives with (its session key for hired agents).
+model Agent {
+  id               String      @id @default(cuid())
+  address          String      @unique @db.VarChar(42)
+  name             String
+  /// One-line blurb for the hire picker.
+  description      String?
+  /// Deterministic avatar seed or asset key; the UI decides how to render it.
+  avatar           String?
+  kind             AgentKind
+  /// ERC-8004 Identity Registry agentId, null if unregistered (which resolves to FLAGGED).
+  erc8004AgentId   BigInt?
+  trustTier        TrustTier   @default(FLAGGED)
+  trustSource      TrustSource @default(FIXTURE)
+  /// Plain-English badge explanation, e.g. "Verified — 214 attested jobs".
+  trustSummary     String      @default("")
+  /// Raw attestation/reputation payload from chain or fixture.
+  trustDetail      Json        @default("{}")
+  attestationCount Int         @default(0)
+  trustCheckedAt   DateTime?
+  /// Rows created from fixtures/seed (disclosed demo override) vs discovered on-chain.
+  isSeeded         Boolean     @default(false)
+  /// Name of the env var holding this agent's session-key private key. Never the key itself.
+  keyEnvVar        String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  policies              Policy[]
+  activity              ActivityEvent[]   @relation("ActivityActor")
+  counterpartyActivity  ActivityEvent[]   @relation("ActivityCounterparty")
+  pendingApprovals      PendingApproval[] @relation("ApprovalActor")
+  counterpartyApprovals PendingApproval[] @relation("ApprovalCounterparty")
+  intents               Intent[]
+
+  @@index([kind])
+  @@index([trustTier])
+}
+
+/// Employment record + mirror of the on-chain AgentPolicy struct for one session key inside one wallet.
+/// Reconciled by the indexer on AgentHired / PolicyUpdated / AgentFrozen / Executed / Approved.
+model Policy {
+  id            String @id @default(cuid())
+  walletAddress String @db.VarChar(42)
+  agentId       String
+  /// The session key address inside the HandlerWallet, lowercase.
+  sessionKey    String @db.VarChar(42)
+
+  // ── AgentPolicy struct mirror (USD-8 fixed point) ──
+  dailyCapUsd           BigInt
+  perTxCapUsd           BigInt
+  cosignAboveUsd        BigInt
+  minCounterpartyTier   TrustTier
+  allowSwaps            Boolean
+  allowUnknownContracts Boolean
+  frozen                Boolean   @default(false)
+  /// Rolling 24h window anchor, mirrored from chain (unix seconds). Spent-today is derived at read time:
+  /// report 0 when now > epochStart + 86400, because the contract rolls the epoch lazily.
+  epochStart            BigInt    @default(0)
+  spentThisEpochUsd     BigInt    @default(0)
+
+  // ── Employment metadata ──
+  hiredTxHash     String?   @db.VarChar(66)
+  hiredBlock      BigInt?
+  hiredAt         DateTime  @default(now())
+  frozenAt        DateTime?
+  /// Block of the last event that touched this mirror (for stale-mirror debugging, not the cursor).
+  lastSyncedBlock BigInt?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  wallet           Wallet            @relation(fields: [walletAddress], references: [address])
+  agent            Agent             @relation(fields: [agentId], references: [id])
+  activity         ActivityEvent[]
+  pendingApprovals PendingApproval[]
+  intents          Intent[]
+
+  @@unique([walletAddress, sessionKey])
+  @@index([agentId])
+  @@index([walletAddress, frozen])
+}
+
+// ───────────────────────────── Activity & approvals ─────────────────────────────
+
+/// The feed. Chain rows are idempotent by (txHash, logIndex); runtime rows by (intentId, type).
+/// `seq` is the SSE resume cursor (Last-Event-ID).
+model ActivityEvent {
+  id                  String         @id @default(cuid())
+  seq                 BigInt         @unique @default(autoincrement())
+  walletAddress       String         @db.VarChar(42)
+  policyId            String?
+  /// The acting agent (session key owner). Null for owner-only events like WALLET_CREATED.
+  agentId             String?
+  counterpartyAgentId String?
+  type                ActivityType
+  source              ActivitySource @default(CHAIN)
+  blockReason         BlockReason?
+  amountUsd           BigInt?
+  /// Token contract address, null for native ETH.
+  tokenAddress        String?        @db.VarChar(42)
+  tokenAmountRaw      Decimal?       @db.Decimal(78, 0)
+  /// Call target (router, recipient, contract).
+  target              String?        @db.VarChar(42)
+  counterpartyAddress String?        @db.VarChar(42)
+  txHash              String?        @db.VarChar(66)
+  logIndex            Int?
+  blockNumber         BigInt?
+  blockTimestamp      DateTime?
+  /// Plain-English line rendered verbatim by the UI. Written at index time.
+  summary             String
+  /// Structured extras: swap route ("via 1inch"), tokenIn/tokenOut, decoded args, cap/remaining for BLOCKED.
+  detail              Json           @default("{}")
+  pendingApprovalId   String?        @db.VarChar(66)
+  intentId            String?
+  createdAt           DateTime       @default(now())
+
+  wallet          Wallet           @relation(fields: [walletAddress], references: [address])
+  policy          Policy?          @relation(fields: [policyId], references: [id])
+  agent           Agent?           @relation("ActivityActor", fields: [agentId], references: [id])
+  counterparty    Agent?           @relation("ActivityCounterparty", fields: [counterpartyAgentId], references: [id])
+  pendingApproval PendingApproval? @relation(fields: [pendingApprovalId], references: [id])
+  intent          Intent?          @relation(fields: [intentId], references: [id])
+
+  @@unique([txHash, logIndex])
+  @@unique([intentId, type])
+  @@index([walletAddress, createdAt(sort: Desc)])
+  @@index([walletAddress, type, createdAt(sort: Desc)])
+  @@index([agentId, createdAt(sort: Desc)])
+  @@index([blockNumber])
+}
+
+/// A propose() over the co-sign threshold. id = the on-chain bytes32 proposal id (deep-link target /approve/[id]).
+model PendingApproval {
+  id                  String            @id @db.VarChar(66)
+  walletAddress       String            @db.VarChar(42)
+  policyId            String
+  agentId             String
+  counterpartyAgentId String?
+  amountUsd           BigInt
+  target              String            @db.VarChar(42)
+  /// Native value of the proposed call, in wei.
+  valueRaw            Decimal           @default(0) @db.Decimal(78, 0)
+  tokenAddress        String?           @db.VarChar(42)
+  tokenAmountRaw      Decimal?          @db.Decimal(78, 0)
+  /// Raw calldata of the proposed Call, hex.
+  calldata            String
+  /// Human-readable intent for the approval sheet (recipient name, amount, purpose, route).
+  decoded             Json              @default("{}")
+  /// One sentence: "Riley wants to pay Atlas $120 for data labeling".
+  summary             String
+  status              ApprovalStatus    @default(PENDING)
+  proposedTxHash      String            @db.VarChar(66)
+  proposedBlock       BigInt
+  proposedAt          DateTime
+  resolvedTxHash      String?           @db.VarChar(66)
+  resolvedAt          DateTime?
+  resolutionSource    ResolutionSource?
+  expiresAt           DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  wallet       Wallet          @relation(fields: [walletAddress], references: [address])
+  policy       Policy          @relation(fields: [policyId], references: [id])
+  agent        Agent           @relation("ApprovalActor", fields: [agentId], references: [id])
+  counterparty Agent?          @relation("ApprovalCounterparty", fields: [counterpartyAgentId], references: [id])
+  activity     ActivityEvent[]
+
+  @@index([walletAddress, status, createdAt(sort: Desc)])
+  @@index([agentId, status])
+}
+
+/// Agent-runtime job row written before any tx is sent (backend roadmap §4.2). Not user-facing; the feed links to it.
+model Intent {
+  id             String        @id @default(cuid())
+  walletAddress  String        @db.VarChar(42)
+  policyId       String
+  agentId        String
+  kind           ExecutionKind
+  target         String        @db.VarChar(42)
+  valueRaw       Decimal       @default(0) @db.Decimal(78, 0)
+  calldata       String
+  /// Server-side USD estimate at planning time (Chainlink-stamped), for the feed copy.
+  expectedUsd    BigInt?
+  tokenAddress   String?       @db.VarChar(42)
+  tokenAmountRaw Decimal?      @db.Decimal(78, 0)
+  /// Route / quote metadata (1inch quote, tokenIn/out) for receipts.
+  meta           Json          @default("{}")
+  status         IntentStatus  @default(PLANNED)
+  txHash         String?       @unique @db.VarChar(66)
+  error          String?
+  demoRunId      String?
+  createdAt      DateTime      @default(now())
+  submittedAt    DateTime?
+  settledAt      DateTime?
+  updatedAt      DateTime      @updatedAt
+
+  wallet   Wallet          @relation(fields: [walletAddress], references: [address])
+  policy   Policy          @relation(fields: [policyId], references: [id])
+  agent    Agent           @relation(fields: [agentId], references: [id])
+  demoRun  DemoRun?        @relation(fields: [demoRunId], references: [id])
+  activity ActivityEvent[]
+
+  @@index([agentId, status])
+  @@index([demoRunId])
+}
+
+// ───────────────────────────── Reference data ─────────────────────────────
+
+/// Token metadata registry. The only source of `decimals` — never assume 18.
+model Token {
+  address   String   @id @db.VarChar(42)
+  chainId   Int
+  symbol    String
+  name      String
+  decimals  Int
+  /// Chainlink AggregatorV3 feed for TOKEN/USD, null if priced as a stable.
+  priceFeed String?  @db.VarChar(42)
+  isStable  Boolean  @default(false)
+  isNative  Boolean  @default(false)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([chainId, symbol])
+}
+
+/// Cached Chainlink round reads (prices module). Newest row per symbol is what /prices serves.
+model PriceSnapshot {
+  id            String   @id @default(cuid())
+  symbol        String
+  feedAddress   String   @db.VarChar(42)
+  roundId       BigInt
+  /// USD-8 fixed point, as returned by the feed after decimals normalization.
+  priceUsd      BigInt
+  /// Feed's updatedAt (chain time).
+  feedUpdatedAt DateTime
+  fetchedAt     DateTime @default(now())
+
+  @@unique([feedAddress, roundId])
+  @@index([symbol, fetchedAt(sort: Desc)])
+}
+
+/// One row per log stream, e.g. "factory", "wallet:0xabc…". Advanced in the same transaction as the upserts.
+model IndexerCursor {
+  key         String   @id
+  blockNumber BigInt
+  updatedAt   DateTime @updatedAt
+}
+
+// ───────────────────────────── Demo tooling (hackathon-only) ─────────────────────────────
+
+/// One row per POST /demo/beat/:n or /demo/reset invocation.
+model DemoRun {
+  id         String        @id @default(cuid())
+  /// 1–4 for beats, 0 for reset.
+  beat       Int
+  status     DemoRunStatus @default(RUNNING)
+  log        Json          @default("[]")
+  error      String?
+  finishedAt DateTime?
+  createdAt  DateTime      @default(now())
+
+  intents Intent[]
+
+  @@index([beat, createdAt(sort: Desc)])
+}
+
+/// Anvil evm_snapshot handle taken after seeding (Plan A). Reset reverts to the latest active one and re-snapshots.
+model DemoSnapshot {
+  id          String   @id @default(cuid())
+  /// The id returned by evm_snapshot.
+  snapshotId  String
+  blockNumber BigInt
+  active      Boolean  @default(true)
+  takenAt     DateTime @default(now())
+
+  @@index([active, takenAt(sort: Desc)])
 }

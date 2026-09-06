@@ -40,70 +40,25 @@ apps/api/src/
 
 ---
 
-## 3. Database Schema (Prisma sketch)
+## 3. Database Schema
 
-```prisma
-model Agent {          // both user-hired agents and counterparties
-  id            String  @id            // erc8004 agentId or synthetic
-  address       String  @unique
-  name          String
-  kind          AgentKind              // HIRED | COUNTERPARTY | VILLAIN
-  trustTier     TrustTier              // VERIFIED | NEW | FLAGGED
-  trustDetail   Json                   // attestation counts, source: chain|fixture
-  frozen        Boolean @default(false)
-  policy        Policy?
-  activity      ActivityEvent[]
-}
+The schema is final for the hackathon and lives in `apps/api/prisma/schema.prisma` (11 models, 12 enums, doc-commented). Do not re-sketch it here; read the file. Conventions are in its header: lowercase addresses, USD as 8-decimal `BigInt`, raw token amounts as `Decimal(78,0)`, chain rows idempotent by natural key, `summary` copy written server-side.
 
-model Policy {
-  agentId        String  @id
-  dailyCapUsd    Decimal
-  perTxCapUsd    Decimal
-  cosignAboveUsd Decimal
-  allowSwaps     Boolean
-  allowUnknown   Boolean
-  payAgentsTier  TrustTier             // minimum counterparty tier
-  sessionKey     String  @unique       // the agent's session key inside the single HandlerWallet
-  syncedBlock    BigInt                // last block this mirror was reconciled
-  // NB: there is ONE HandlerWallet per user (contracts roadmap §2) — its address
-  // lives in app config, not per-policy. Agents are session keys within it.
-}
+Deviations from the original sketch, each deliberate:
 
-model ActivityEvent {
-  id         String   @id @default(cuid())
-  agentId    String
-  type       EventType   // SWAP | AGENT_PAYMENT | BLOCKED | PENDING | APPROVED | DENIED | FREEZE
-  amountUsd  Decimal?
-  token      String?
-  counterparty String?
-  txHash     String?  @unique
-  blockNo    BigInt?
-  summary    String      // pre-written plain-English line the UI renders verbatim
-  createdAt  DateTime @default(now())
-}
+| Sketch | Schema | Reason |
+|---|---|---|
+| Wallet address "lives in app config" | `Wallet` table indexed from `WalletCreated` (demo wallet address *also* stays in config) | Factory + CREATE2 lands day 5 and the live link must survive a judge creating their own wallet. |
+| `Agent 1:1 Policy` | `Agent 1:N Policy`, unique on `(walletAddress, sessionKey)` | Same catalog agent (Riley) can be hired by the demo wallet *and* a judge's wallet. |
+| `Decimal` USD | `BigInt` for USD-8, `Decimal(78,0)` for raw token/wei amounts | Postgres `BIGINT` is int64, which overflows at ~9.2 ETH in wei. |
+| `txHash @unique` | `@@unique([txHash, logIndex])` | One tx can emit several indexed logs (e.g. `Approved` + `Executed`). |
+| `syncedBlock` on `Policy` | `IndexerCursor` table keyed by stream name | One cursor per log stream (factory, each wallet), advanced in the same transaction as the upserts. |
+| No intent table | `Intent` table | §4.2 "intent-row-first" rule needs a home that is *not* the chain-derived feed. |
+| `DemoRun.status String` | `DemoRunStatus` enum + `DemoSnapshot` | Plan A reset uses `evm_snapshot`/`evm_revert`; the snapshot id must survive an api restart. |
 
-model PendingApproval {
-  id         String   @id             // deterministic: policyAddr + nonce
-  agentId    String
-  amountUsd  Decimal
-  calldata   String
-  decoded    Json                     // human-readable intent for the approval sheet
-  status     ApprovalStatus           // PENDING | APPROVED | DENIED | EXPIRED
-  createdAt  DateTime @default(now())
-}
+Two derived values that must **not** become columns: spent-today (`Policy.spentThisEpochUsd`, reported as 0 when `now > epochStart + 86400` because the contract rolls the epoch lazily) and wallet/agent balances (live `chain` reads, cached in memory).
 
-model DemoRun {
-  id        String  @id @default(cuid())
-  beat      Int
-  status    String
-  log       Json
-  createdAt DateTime @default(now())
-}
-```
-
-Design note: `summary` is written server-side at index time — the backend owns copy for events, so the frontend renders strings and the video never shows a formatting bug.
-
----
+Contracts coordination: `PendingApproval` needs `target`, `calldata`, `value`, and `usdValue` at index time, so the `Proposed` event must carry them (or the proposal must be readable by id) before the day-2 event freeze.
 
 ## 4. Core Services
 

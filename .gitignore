@@ -11,3 +11,5 @@ packages/contracts/broadcast/*/31337/
 !packages/contracts/ts/generated.ts
 
 apps/api/src/generated/
+
+apps/api/tsconfig.build.tsbuildinfo
