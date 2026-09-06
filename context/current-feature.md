@@ -11,7 +11,7 @@ one.
 - [x] 4b. Core components — Avatar, Badge, Button, IconButton — Completed
 - [x] 4c. Forms components — Checkbox, Input, Radio, SearchInput, Select, Slider, Switch — Completed
 - [x] 4d. Feedback components — Banner, EmptyState, ProgressBar, Toast, Tooltip — Completed
-- [ ] 4e. Navigation components — FilterChips, NavItem, Stepper, Tabs
+- [x] 4e. Navigation components — FilterChips, NavItem, Stepper, Tabs — Completed
 - [ ] 4f. Overlay components — Dialog, Menu
 - [ ] 4g. Data & Trust components — Card, ListRow, StatCard, Table, TrustIndicator
 
@@ -39,3 +39,4 @@ native `<input type="range">`) or **Tooltip** (build on `Popover` + `Transition`
 - **4b. Core components — Avatar, Badge, Button, IconButton** — port these four primitives from the Handler Design System canvas into components/ui/, reverting the prior feature's block-color swap to match the canvas's actual (and deliberate) slate-blocked/red-error semantics (Completed)
 - **4c. Forms components — Checkbox, Input, Radio, SearchInput, Select, Slider, Switch** — port these 7 primitives from the canvas into components/ui/, using the canvas's native-control implementations rather than HeadlessUI; also fixed a Tailwind arbitrary-value bug (`text-[var(--text-*)]` silently resolving to `color` instead of `font-size`) found during audit, across this feature's 7 files and the already-merged 4b's Badge/Button (Completed)
 - **4d. Feedback components — Banner, EmptyState, ProgressBar, Toast, Tooltip** — port these 5 primitives from the canvas into components/ui/, using the canvas's plain Tooltip implementation rather than HeadlessUI, applying the text-[length:...] fix from the start; audit also caught and fixed missing `type="button"` on Banner/Toast's dismiss buttons (Completed)
+- **4e. Navigation components — FilterChips, NavItem, Stepper, Tabs** — port these 4 primitives from the canvas into components/ui/, fixing a hardcoded #fff in Stepper to var(--gray-0) and applying type="button" proactively; caught and fixed a border-none/border-b-2 conflict in Tabs during implementation (Completed)

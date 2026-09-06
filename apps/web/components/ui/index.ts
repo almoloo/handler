@@ -47,3 +47,15 @@ export type { ToastProps } from "./toast";
 
 export { Tooltip } from "./tooltip";
 export type { TooltipProps } from "./tooltip";
+
+export { FilterChips } from "./filter-chips";
+export type { FilterChipOption, FilterChipsProps } from "./filter-chips";
+
+export { NavItem } from "./nav-item";
+export type { NavItemProps } from "./nav-item";
+
+export { Stepper } from "./stepper";
+export type { StepperProps } from "./stepper";
+
+export { Tabs } from "./tabs";
+export type { TabItem, TabsProps } from "./tabs";
