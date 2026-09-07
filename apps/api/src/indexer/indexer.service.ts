@@ -12,7 +12,7 @@ import {
   ApprovalStatus,
   ResolutionSource,
 } from '../generated/prisma/enums.js';
-import { truncateAddress } from './format.js';
+import { truncateAddress } from '../common/format.js';
 import {
   approvedSummary,
   blockedSummary,

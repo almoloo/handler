@@ -16,12 +16,16 @@ const RILEY_TEST_KEY =
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 
 /**
- * Exercises the real POST /agents/:id/run route end to end against the local
- * Postgres instance: the 401-without-session path, and the wallet-scoping check
- * (a session for wallet A must not be able to run Riley for wallet B's hire), per
- * context/coding-standards.md's e2e requirement. Stops short of a real 1inch/chain
- * call (that boundary is exercised manually — see current-feature.md step 4/6
- * notes) so this spec stays deterministic and network-free.
+ * Exercises the real /agents routes end to end against the local Postgres
+ * instance: POST /agents/:id/run's 401-without-session path and wallet-scoping
+ * check (a session for wallet A must not be able to run Riley for wallet B's
+ * hire); and GET /agents, /agents/catalog, /agents/:id's 401 path, empty vs.
+ * real payroll rows, the two-wallet non-leak case, and the agent-file's
+ * policy: null vs. hired shape, per context/coding-standards.md's e2e
+ * requirement and current-feature.md's 5a spec. Stops short of a real
+ * 1inch/chain call for /run (that boundary is exercised manually — see
+ * current-feature.md step 4/6 notes) so this spec stays deterministic and
+ * network-free.
  * Requires `pnpm dev:chain` (or an equivalent local Postgres) to be running.
  */
 describe('Agents (e2e)', () => {
@@ -145,5 +149,135 @@ describe('Agents (e2e)', () => {
       .post(`/agents/${riley.id}/run`)
       .set('Cookie', ownerB.cookie);
     expect(resB.status).not.toBe(404);
+  });
+
+  it('GET /agents, /agents/catalog, and /agents/:id return 401 with no session cookie', async () => {
+    const riley = await prisma.agent.findUniqueOrThrow({
+      where: { address: privateKeyToAccount(RILEY_TEST_KEY).address.toLowerCase() },
+    });
+    await request(app.getHttpServer()).get('/agents').expect(401);
+    await request(app.getHttpServer()).get('/agents/catalog').expect(401);
+    await request(app.getHttpServer()).get(`/agents/${riley.id}`).expect(401);
+  });
+
+  it('GET /agents returns [] for a signed-in wallet with no Wallet row yet', async () => {
+    const owner = await signIn();
+    const res = await request(app.getHttpServer())
+      .get('/agents')
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it('GET /agents returns real rows once a Wallet + Policy exist, and never leaks another wallet\'s row', async () => {
+    const riley = await prisma.agent.findUniqueOrThrow({
+      where: { address: privateKeyToAccount(RILEY_TEST_KEY).address.toLowerCase() },
+    });
+
+    const ownerWithPolicy = await signIn();
+    const walletWithPolicy = await createWallet(ownerWithPolicy.address);
+    await prisma.policy.create({
+      data: {
+        walletAddress: walletWithPolicy.address,
+        agentId: riley.id,
+        sessionKey: riley.address,
+        dailyCapUsd: 500_00000000n,
+        perTxCapUsd: 150_00000000n,
+        cosignAboveUsd: 300_00000000n,
+        minCounterpartyTier: TrustTier.NEW,
+        allowSwaps: true,
+        allowUnknownContracts: false,
+      },
+    });
+
+    const ownerWithoutPolicy = await signIn();
+    await createWallet(ownerWithoutPolicy.address);
+
+    const resWithPolicy = await request(app.getHttpServer())
+      .get('/agents')
+      .set('Cookie', ownerWithPolicy.cookie)
+      .expect(200);
+    expect(resWithPolicy.body).toHaveLength(1);
+    expect(resWithPolicy.body[0]).toMatchObject({
+      agentId: riley.id,
+      name: riley.name,
+      dailyCapUsd: '50000000000',
+      perTxCapUsd: '15000000000',
+      spentTodayUsd: '0',
+      frozen: false,
+    });
+    expect(resWithPolicy.body[0].policySentences).toContain(
+      'Only pays agents rated New or higher.',
+    );
+
+    const resWithoutPolicy = await request(app.getHttpServer())
+      .get('/agents')
+      .set('Cookie', ownerWithoutPolicy.cookie)
+      .expect(200);
+    expect(resWithoutPolicy.body).toEqual([]);
+  });
+
+  it('GET /agents/catalog lists Riley with a trust tier', async () => {
+    const owner = await signIn();
+    const res = await request(app.getHttpServer())
+      .get('/agents/catalog')
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    const riley = res.body.find((a: { name: string }) => a.name === 'Riley');
+    expect(riley).toBeDefined();
+    expect(riley.trustTier).toBeDefined();
+  });
+
+  it('GET /agents/:id returns policy: null for a wallet that has not hired the agent', async () => {
+    const riley = await prisma.agent.findUniqueOrThrow({
+      where: { address: privateKeyToAccount(RILEY_TEST_KEY).address.toLowerCase() },
+    });
+    const owner = await signIn();
+    const res = await request(app.getHttpServer())
+      .get(`/agents/${riley.id}`)
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(res.body.agentId).toBe(riley.id);
+    expect(res.body.policy).toBeNull();
+    expect(res.body.recentActivity).toEqual([]);
+  });
+
+  it('GET /agents/:id returns the policy + sentences for a wallet that hired the agent', async () => {
+    const riley = await prisma.agent.findUniqueOrThrow({
+      where: { address: privateKeyToAccount(RILEY_TEST_KEY).address.toLowerCase() },
+    });
+    const owner = await signIn();
+    const wallet = await createWallet(owner.address);
+    await prisma.policy.create({
+      data: {
+        walletAddress: wallet.address,
+        agentId: riley.id,
+        sessionKey: riley.address,
+        dailyCapUsd: 500_00000000n,
+        perTxCapUsd: 150_00000000n,
+        cosignAboveUsd: 300_00000000n,
+        minCounterpartyTier: TrustTier.FLAGGED,
+        allowSwaps: false,
+        allowUnknownContracts: false,
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get(`/agents/${riley.id}`)
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(res.body.policy).toMatchObject({
+      dailyCapUsd: '50000000000',
+      allowSwaps: false,
+    });
+    expect(res.body.policy.policySentences).toContain('Swaps: not allowed.');
+  });
+
+  it('GET /agents/:id returns 404 for an agent that does not exist', async () => {
+    const owner = await signIn();
+    await request(app.getHttpServer())
+      .get('/agents/does-not-exist')
+      .set('Cookie', owner.cookie)
+      .expect(404);
   });
 });

@@ -1,5 +1,5 @@
 import { TrustTier, BlockReason } from '../generated/prisma/enums.js';
-import { formatUsd } from './format.js';
+import { formatUsd } from '../common/format.js';
 
 /** Mirrors TrustReader's Tier enum ordering: FLAGGED=0, NEW=1, VERIFIED=2. */
 const TIER_BY_INDEX: readonly TrustTier[] = [

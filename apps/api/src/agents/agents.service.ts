@@ -58,6 +58,16 @@ export class AgentsService implements OnModuleInit {
     return this.rileyAccount.address;
   }
 
+  /** Resolves the session's `HandlerWallet` address from the owner's SIWE
+   * address, or `null` if this owner hasn't hired anyone yet (no `Wallet` row).
+   * One `HandlerWallet` per owner (backend-roadmap.md §3). */
+  async walletAddressForOwner(ownerAddress: string): Promise<string | null> {
+    const wallet = await this.prisma.wallet.findFirst({
+      where: { owner: ownerAddress },
+    });
+    return wallet?.address ?? null;
+  }
+
   async onModuleInit() {
     const address = this.rileyAddress.toLowerCase();
     await this.prisma.agent.upsert({
@@ -94,17 +104,15 @@ export class AgentsService implements OnModuleInit {
       throw new NotFoundException('Agent has no run capability');
     }
 
-    const wallet = await this.prisma.wallet.findFirst({
-      where: { owner: ownerAddress },
-    });
-    if (!wallet) {
+    const walletAddress = await this.walletAddressForOwner(ownerAddress);
+    if (!walletAddress) {
       throw new NotFoundException('No wallet for this session');
     }
 
     const policy = await this.prisma.policy.findUnique({
       where: {
         walletAddress_sessionKey: {
-          walletAddress: wallet.address,
+          walletAddress,
           sessionKey: agent.address,
         },
       },
@@ -116,14 +124,14 @@ export class AgentsService implements OnModuleInit {
       throw new ConflictException('Riley is frozen for this wallet');
     }
 
-    const runKey = `${wallet.address}:${agent.address}`;
+    const runKey = `${walletAddress}:${agent.address}`;
     if (this.runsInFlight.has(runKey)) {
       throw new ConflictException('A run is already in progress for this agent');
     }
     this.runsInFlight.add(runKey);
 
     try {
-      return await this.executeRun(wallet.address, policy.id, agent.id);
+      return await this.executeRun(walletAddress, policy.id, agent.id);
     } finally {
       this.runsInFlight.delete(runKey);
     }
