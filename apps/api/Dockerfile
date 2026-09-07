@@ -27,8 +27,14 @@ RUN pnpm --filter api deploy --prod /app/deploy
 
 FROM node:22-slim AS runtime
 RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+# Ledger Key Ring CLI — decrypts Riley's session key / the 1inch key at boot
+# instead of them living as plaintext Coolify env. See
+# apps/api/docker/entrypoint.sh and docs/ledger-key-ring-setup.md.
+RUN npm i -g @ledgerhq/wallet-cli@2.1.0
 WORKDIR /app
 COPY --from=build /app/deploy ./
+COPY apps/api/docker/entrypoint.sh ./docker/entrypoint.sh
+RUN chmod +x ./docker/entrypoint.sh
 ENV NODE_ENV=production
 EXPOSE 3000
-CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node dist/main.js"]
+ENTRYPOINT ["./docker/entrypoint.sh"]
