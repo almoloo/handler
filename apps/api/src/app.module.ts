@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { HealthModule } from './health/health.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { IndexerModule } from './indexer/indexer.module.js';
+import { TrustModule } from './trust/trust.module.js';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { IndexerModule } from './indexer/indexer.module.js';
     AgentsModule,
     HealthModule,
     IndexerModule,
+    TrustModule,
   ],
 })
 export class AppModule {}
