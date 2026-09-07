@@ -18,6 +18,8 @@ This repo has three parts with different conventions: `apps/web` (Next.js), `app
 - No unused imports or variables.
 - Keep functions under 50 lines when possible.
 - Make minimal changes to accomplish the task; don't refactor unrelated code unless asked.
+- No mock, fixture, seeded, or "demo mode" data in runtime code paths — test doubles live in `*.spec.ts` / `*.t.sol` / e2e files only. Runtime code reads the chain, the registries, the feeds, or the DB, and nothing else.
+- Every feature ships with its tests; an untested feature is incomplete (see `context/ai-interaction.md` "Product Integrity").
 
 ### Money & Units
 - All USD amounts that cross a boundary (contract ↔ API ↔ UI) are 8-decimal fixed-point integers (matching Chainlink's `AggregatorV3` convention) until the final render step — convert to a display string only at the UI layer, never store or pass around a floated dollar value.
@@ -38,7 +40,7 @@ This repo has three parts with different conventions: `apps/web` (Next.js), `app
 - No inline `style={{}}` except for values that are genuinely dynamic per-render (e.g. a computed progress-bar width).
 
 ### Chain & Data
-- All reads (agent list, activity, pending approvals, trust tiers, prices) come from the backend REST/SSE API — never poll contract logs directly from the client. See `context/backend-roadmap.md` §5 for the API surface.
+- All reads (agent list, activity, pending approvals, trust tiers, prices) come from the backend REST/SSE API — never poll contract logs directly from the client. See `context/backend-roadmap.md` §5 for the API surface. Requests carry the SIWE session cookie; a 401 routes to the sign-in gate. No mock store: screens are built against the real API types and render real empty states until data exists.
 - All writes (hire, freeze, approve, deny) are owner-signed client-side via wagmi — the app never sends a private key or seed phrase anywhere, and never asks the backend to sign on the owner's behalf.
 - Use TanStack Query for all backend API calls; no raw `fetch` in components.
 
@@ -69,11 +71,16 @@ This repo has three parts with different conventions: `apps/web` (Next.js), `app
 ### Data
 - Prisma is the only DB access layer — no raw SQL except inside a documented migration.
 - Every chain-derived DB row must be idempotent by a natural key (`txHash`, or a deterministic `PendingApproval.id`) so the indexer can safely re-run without duplicating rows.
+- Every `/app`-serving read and write is guarded by `SessionAuthGuard` and filtered by the session's wallet address — a handler must never return or mutate rows for a wallet the session doesn't own. Public routes are limited to `/health`, `/prices`, and `/auth/*`.
 - `ActivityEvent.summary` (the plain-English line the UI renders) is written server-side at index time — never let the frontend construct that copy itself.
 
 ### Error Handling
 - Use `try/catch` in all async service methods; never let an unhandled rejection kill the indexer cron tick — log and continue to the next tick.
 - Use Nest's exception filters for HTTP error responses; don't leak raw error objects/stack traces in API responses.
+
+### Testing
+- Unit tests (`*.spec.ts`) for every service; e2e tests (`test/*.e2e-spec.ts`) for every controller route, including the 401/403 path and the wallet-scoping path (a session for wallet A must not see wallet B's rows).
+- External I/O (RPC, 1inch, registries) is mocked only inside test files, never via a runtime env flag.
 
 ### Naming
 - Files: kebab-case matching Nest conventions (`agents.service.ts`, `agents.controller.ts`).
@@ -90,6 +97,7 @@ This repo has three parts with different conventions: `apps/web` (Next.js), `app
 - No upgradeability, no proxies, no ERC-4337 — out of scope per the contracts roadmap. Don't introduce these patterns even "for future-proofing."
 - Reentrancy guard (`nonReentrant`) on every function that does an external call after a state change check.
 - Session keys can never change policy or self-withdraw — any new function must preserve `target != sessionKey` and no `updatePolicy` path reachable from a session key.
+- No owner-settable override paths for trust tiers or prices in deployable contracts. `TrustReader` reads the ERC-8004 registries and `PriceConverter` reads Chainlink feeds; the current `setOverride`/`setRate` stubs are transitional and are removed by the features that replace them (contracts roadmap §2.2/§2.3).
 
 ### Testing
 - Every custom error needs a test that triggers it.

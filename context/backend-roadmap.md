@@ -1,6 +1,6 @@
 # Handler — Backend Roadmap (NestJS + Postgres, End-to-End)
 
-**Role of the backend:** it is the *stage crew* of the demo. It runs the agents themselves, indexes the chain into Postgres so the frontend gets clean data fast, computes trust tiers, and drives the scripted demo beats. Nothing here is user-facing infrastructure for scale — every choice optimizes for reliability across 5+ video takes.
+**Role of the backend:** it is the server side of a real product. It indexes the chain into Postgres so the frontend gets clean, decoded data for *any* signed-in wallet, computes trust tiers from the ERC-8004 registries, serves prices from Chainlink, hosts the catalog agents' runtime, and exposes an isolated operator tool that triggers real agent actions for the demo video. Choices are simple (modular monolith, cron, no queues) because the timeline is 10 days — not because the app is a throwaway. Every choice must hold up for a stranger who signs in with their own wallet.
 
 One change vs. the frontend roadmap: the frontend **no longer polls raw chain logs** — it consumes this backend's REST/SSE API. Cleaner data, decoded once, and the video never stutters on RPC hiccups.
 
@@ -29,16 +29,16 @@ apps/api/src/
   auth/         SIWE nonce issuance + verification, session cookie guard
   chain/        viem clients, contract bindings, tx helpers, nonce mgmt
   indexer/      cron: pull logs → decode → upsert into Postgres
-  agents/       the agent runtime (good agent, subcontractor, villain)
-  trust/        ERC-8004 reads + seeded fixtures → trust tiers
+  agents/       the catalog agent runtime (Riley the rebalancer, the verified subcontractor)
+  trust/        ERC-8004 Identity + Reputation reads → trust tiers (chain only)
   policies/     mirror of on-chain policy state + write endpoints
   activity/     REST + SSE serving the feed & pending approvals
   prices/       Chainlink feed reads, cached USD conversions
-  demo/         director endpoints: beats 1–5, reset, seeding
+  demo/         operator tooling (env-gated): triggers beats 1–4 against the showcase wallet, runs the villain actor, reset
   health/       /health for the video-day sanity check
 ```
 
-**Dependency rule:** `agents`, `indexer`, `demo` may depend on `chain`; `activity`, `policies`, `trust`, `prices` are read/serve modules the frontend hits. `auth` depends on nothing but Postgres (sessions table) and is applied as a guard in front of every write route. Nothing circular, no shared mutable state outside Postgres.
+**Dependency rule:** `agents`, `indexer`, `demo` may depend on `chain`; `activity`, `policies`, `trust`, `prices` are read/serve modules the frontend hits. `auth` depends on nothing but Postgres (sessions table) and is applied as a guard in front of every `/app`-serving route — reads and writes alike — with results filtered by the session's wallet address. The villain (an unregistered, zero-reputation actor) lives in `demo/`, not `agents/`: it is an adversarial test actor, not a product agent. Nothing circular, no shared mutable state outside Postgres.
 
 ---
 
@@ -50,13 +50,15 @@ Deviations from the original sketch, each deliberate:
 
 | Sketch | Schema | Reason |
 |---|---|---|
-| Wallet address "lives in app config" | `Wallet` table indexed from `WalletCreated` (demo wallet address *also* stays in config) | Factory + CREATE2 lands day 5 and the live link must survive a judge creating their own wallet. |
-| `Agent 1:1 Policy` | `Agent 1:N Policy`, unique on `(walletAddress, sessionKey)` | Same catalog agent (Riley) can be hired by the demo wallet *and* a judge's wallet. |
+| Wallet address "lives in app config" | `Wallet` table indexed from `WalletCreated`; config holds only the factory address plus the showcase wallet's address for the `demo` module | Any signed-in wallet creates its own `HandlerWallet`; the showcase wallet is an ordinary row, not a special case in product code. |
+| `Agent 1:1 Policy` | `Agent 1:N Policy`, unique on `(walletAddress, sessionKey)` | Same catalog agent (Riley) can be hired by many wallets. |
 | `Decimal` USD | `BigInt` for USD-8, `Decimal(78,0)` for raw token/wei amounts | Postgres `BIGINT` is int64, which overflows at ~9.2 ETH in wei. |
 | `txHash @unique` | `@@unique([txHash, logIndex])` | One tx can emit several indexed logs (e.g. `Approved` + `Executed`). |
 | `syncedBlock` on `Policy` | `IndexerCursor` table keyed by stream name | One cursor per log stream (factory, each wallet), advanced in the same transaction as the upserts. |
 | No intent table | `Intent` table | §4.2 "intent-row-first" rule needs a home that is *not* the chain-derived feed. |
 | `DemoRun.status String` | `DemoRunStatus` enum + `DemoSnapshot` | Plan A reset uses `evm_snapshot`/`evm_revert`; the snapshot id must survive an api restart. |
+
+Schema debt to clear in a follow-up fix once `trust/` lands: `TrustSource.FIXTURE`/`OVERRIDE`, `Agent.isSeeded`, and the `Agent.trustSource` default of `FIXTURE` describe a fixture path that no longer exists — runtime code must never write those values; the enum collapses to `CHAIN`.
 
 Two derived values that must **not** become columns: spent-today (`Policy.spentThisEpochUsd`, reported as 0 when `now > epochStart + 86400` because the contract rolls the epoch lazily) and wallet/agent balances (live `chain` reads, cached in memory).
 
@@ -70,30 +72,33 @@ Contracts coordination: `PendingApproval` needs `target`, `calldata`, `value`, a
 - Push each new row to the SSE broadcaster.
 
 ### 4.2 Agent runtime
-Each agent = a Nest service holding a viem `walletClient` on its **session key** — the backend never holds the owner key. The owner is the user's wallet in the frontend (Ledger/browser via wagmi); the demo-reset script uses a separate **faucet key** that only tops up balances and can't touch policies.
-- **Good agent ("Riley"):** rebalance loop — reads portfolio, quotes via 1inch API, executes swap *through the policy wallet*. Runs on demand (beat 1), not free-running, so takes are deterministic.
-- **Subcontractor (verified):** exposes a paid "task"; Riley pays it through the policy wallet (beat 2).
-- **Villain (zero reputation):** attempts the $500 charge (beat 3) and the over-threshold retry path is Riley requesting above `cosignAboveUsd` (beat 4).
+Each catalog agent = a Nest service holding a viem `walletClient` on its **session key** — the backend never holds the owner key. The owner is the user's wallet in the frontend (Ledger/browser via wagmi). A catalog agent serves every wallet that hired it: when it acts, it iterates the wallets where its session key holds an active policy. The demo-reset tool uses a separate **faucet key** that only tops up the showcase wallet's balances and can't touch policies.
+- **Riley (rebalancer):** reads the hiring wallet's portfolio, quotes via the 1inch API, executes the swap *through that wallet's policy* via `tryExecute()`. Runs on an owner-triggered "Run now" and on a slow schedule; the demo director's beat 1 simply calls the same "run now" for the showcase wallet.
+- **Subcontractor (verified):** a real ERC-8004-registered agent that exposes a paid task; Riley pays it through the policy wallet (beat 2 is one such payment). Above `cosignAboveUsd`, Riley calls `propose()` instead — that is beat 4, and it is the same code path for any wallet.
+- **Villain (zero reputation):** lives in `demo/`, not here. It is an unregistered address that attempts a $500 charge through `tryExecute()` and gets `ExecutionBlocked` — a real tx, blocked by the real trust check (unregistered ⇒ FLAGGED), with no override anywhere.
 - All agent actions write an *intent* row first, then the tx — so even a failed RPC shows up in the feed as a coherent story.
 
 ### 4.3 Trust service
-- Interface `TrustSource` with two implementations: `ChainTrustSource` (reads ERC-8004 Identity + Reputation registries via viem) and `FixtureTrustSource` (seeded JSON). Resolution order: chain → fixture fallback per agent. Env flag can force fixtures for the video.
-- Maps raw data → `VERIFIED | NEW | FLAGGED` + a one-line `trustDetail` explanation. Cached in the `Agent` row, refreshed on a 60s cron.
+- One implementation: `ChainTrustSource`, reading the ERC-8004 Identity + Reputation registries via viem. No fixture source, no env flag, no fallback data. If the registries are unreachable, the cached tier stays as-is and `trustSummary` says so ("Couldn't refresh trust"); an agent with no cached tier is FLAGGED.
+- The showcase counterparties (subcontractor = Verified, a second catalog agent = New) get their tiers by *actually being registered* in the Identity Registry and carrying real Reputation entries, created once by a disclosed setup script (`scripts/register-agents.ts`, run against the fork/testnet). The product itself never writes reputation.
+- Maps raw data → `VERIFIED | NEW | FLAGGED` + a one-line `trustSummary` explanation. Cached in the `Agent` row, refreshed on a 60s cron. Tier thresholds mirror `TrustReader.sol` exactly so the badge the UI shows is the tier the contract enforced.
 
 ### 4.4 Prices
-- Chainlink feed reads (ETH/USD + stable sanity) cached 30s; exposes `/prices` and is used server-side to stamp `amountUsd` on events. Keeps the UI's USD framing consistent with what the contracts enforced.
+- Chainlink feed reads (ETH/USD, USDC/USD) with the same staleness window as `PriceConverter.sol`, cached 30s; exposes `/prices` and is used server-side to stamp `amountUsd` on events. Keeps the UI's USD framing consistent with what the contracts enforced. No hardcoded rate fallback: if the feed is stale, `/prices` reports it as stale and the UI says so.
 
-### 4.5 Demo director
-- `POST /demo/beat/:n` (1–4, matching the frontend demo engine) — runs the corresponding script, logs to `DemoRun`.
-- `POST /demo/reset` — the most important endpoint in the repo: refund balances from a faucet wallet, clear `ActivityEvent`/`PendingApproval`/`DemoRun`, reset `frozen` flags, re-seed fixtures, reconcile `syncedBlock`. Target: < 30s, idempotent, safe to mash.
-- Guarded by a single header token; never linked from the app.
+### 4.5 Demo director (operator tooling, not product)
+- Whole module is registered only when `DEMO_ENABLED=true`; every route requires a valid SIWE session whose address owns the showcase wallet **and** the `DEMO_TOKEN` header.
+- `POST /demo/beat/:n` (1–4, matching the frontend director screen) — triggers the *real* action for the showcase wallet: 1 = Riley "run now"; 2 = Riley pays the subcontractor; 3 = the villain actor calls `tryExecute()` and is blocked on-chain; 4 = Riley proposes above the co-sign cap. Logs to `DemoRun`. Nothing here bypasses policy, trust, or price checks.
+- `POST /demo/reset` — restores the showcase wallet for a retake. On the anvil fork (Plan A) it is `evm_revert` to the post-setup snapshot + re-snapshot + cursor rewind, near-instant. On a public chain it tops up balances from the faucet, unfreezes the showcase wallet's agents via real owner txs, and deletes **only** rows whose `walletAddress` is the showcase wallet before re-indexing. It never truncates a table and never touches another wallet's rows. Target: < 30s, idempotent, safe to mash.
+- Never linked from the app's navigation; the `/demo` page 404s unless the flag is on.
 
 ---
 
 ## 5. API Surface (what the frontend consumes)
 
 ```
-GET  /agents                     payroll list (policy + trust + spent-today)
+GET  /agents                     payroll list for the session's wallet (policy + trust + spent-today)
+GET  /agents/catalog             hireable catalog agents with live trust tiers (hire picker step 1)
 POST /agents/hire                { name, sessionKey, policy, txHash } → row + summary copy
                                  (the hireAgent TX ITSELF is owner-signed client-side —
                                   this endpoint just registers metadata the chain lacks, e.g. name)
@@ -115,7 +120,7 @@ POST /auth/logout                clears the session cookie
 GET  /auth/session               current session's address, or 401
 ```
 
-Auth: real SIWE-based session auth — the owner signs a SIWE message with their connected wallet (`/auth/nonce` → sign → `/auth/verify`), the API issues a signed, HTTP-only session cookie scoped to that address, and every write route (`/agents/hire`, `/approvals/:id/*`, `/demo/*`) requires a valid session whose address matches the wallet the write claims to act for. Reads stay open in demo mode (single-user hackathon app), matching the existing read/write split above. The demo director (`/demo/*`) is additionally gated by its header token, on top of session auth.
+Auth: real SIWE-based session auth — the owner signs a SIWE message with their connected wallet (`/auth/nonce` → sign → `/auth/verify`), the API issues a signed, HTTP-only session cookie scoped to that address. **Every** `/agents*`, `/activity`, `/events/stream`, and `/approvals*` route requires a valid session and returns or mutates only rows for wallets owned by the session address (multi-user by construction: one `HandlerWallet` per owner, resolved from the `Wallet` table). Writes additionally verify the wallet the write claims to act for belongs to the session. Public routes are `/health`, `/prices`, and `/auth/*` only. The demo director (`/demo/*`) is gated by `DEMO_ENABLED`, session auth, and its header token.
 
 ---
 
@@ -125,12 +130,12 @@ Auth: real SIWE-based session auth — the owner signs a SIWE message with their
 |---|---|---|
 | 1 | Monorepo, Nest scaffold, Prisma + Postgres up, viem clients, env validation | `/health` green on deployed VPS |
 | 2 | Shared `packages/contracts` typegen; indexer walking logs from the contracts lane's **day-2 dev deployment** into Postgres | Events from a manual tx appear as rows |
-| 3 | `agents` runtime: Riley + 1inch swap through the policy wallet (session interface frozen this day); `auth` module: SIWE nonce/verify + session cookie guard on write routes | Beat 1 runs from a curl; hire/freeze/approve/deny reject without a valid session |
-| 4 | Trust service (chain + fixtures) · activity REST + SSE | Frontend feed switches from mocks to API |
+| 3 | `agents` runtime: Riley + 1inch swap through the policy wallet (session interface frozen this day); `auth` module: SIWE nonce/verify + session cookie guard on every `/app` route, reads scoped by wallet | Riley runs from a curl for a signed-in wallet; every `/agents*`/`/activity`/`/approvals*` route 401s without a session and never leaks another wallet's rows (e2e) |
+| 4 | Trust service (ERC-8004 chain reads) + `scripts/register-agents.ts` · activity REST + SSE | Frontend feed reads live API data; catalog agents show real registry-derived tiers |
 | 5 | Hire-metadata endpoint + freeze/approval event handling in indexer · prices module | Frontend hire flow end-to-end |
 | 6 | Approvals pipeline (pending rows + approved/denied callbacks) · subcontractor + villain agents | Beats 2–4 run from curl |
-| 7 | Demo director + reset hardened; **feature freeze at EOD** | Beats 1–4 + reset, 3 consecutive clean runs |
-| 8 | Failure drills: RPC flake, double-fire beats, restart mid-take; seed data final | Reset < 30s, beats idempotent |
+| 7 | Demo director + reset hardened; **feature freeze at EOD** | Beats 1–4 + reset, 3 consecutive clean runs; a second, non-showcase wallet is untouched by reset (e2e) |
+| 8 | Failure drills: RPC flake, double-fire beats, restart mid-take; showcase agents' on-chain registrations final | Reset < 30s, beats idempotent |
 | 9 | Video day: backend on standby, `/health` open in a tab, no deploys | — |
 
 Coordination points with the Solidity lane: event signatures (incl. the `ExecutionBlocked` reason enum) + custom errors frozen by **end of day 2** (indexer depends on them); `tryExecute()`/session interface frozen by **day 3** (Riley depends on it); a dev deployment must exist from day 2 (contracts roadmap day-by-day).
@@ -141,10 +146,10 @@ If the 1inch decision lands on **Plan A (anvil fork of Base mainnet)** — see c
 
 ## 7. Risk Rules
 
-- If a day-4+ slip forces cuts, cut in order: prices module (hardcode a rate) → subcontractor agent (merge beat 2 into beat 1) → SSE (frontend falls back to 3s polling). **Never cut:** indexer, reset, villain beat.
+- If a day-4+ slip forces cuts, cut in order: subcontractor agent (merge beat 2 into beat 1) → SSE (frontend falls back to 3s polling) → `/agents/catalog` blurbs/avatars. **Never cut:** indexer, auth scoping, real Chainlink prices, real ERC-8004 trust, reset, villain beat. A cut feature is removed from the UI, never replaced with a hardcoded value.
 - Every agent action is intent-row-first, so a mid-take crash still leaves a coherent feed.
-- Keep one `scripts/smoke.ts` that runs all beats headless — run it every morning; it's your regression suite in lieu of tests you won't have time to write (unit tests only for policy-mirror math and log decoding).
+- Tests are not optional: unit tests for every service (policy-mirror math, log decoding, trust mapping, price staleness, agent runtime) and e2e tests for every route (auth + wallet scoping). `scripts/smoke.ts` runs all beats headless against a live stack on top of that — run it every morning as the integration check, not as a substitute for tests.
 
 ## 8. Explicitly Out of Scope
 
-Multi-user account systems beyond one session per connected wallet (no email/password, no org/team accounts) · Redis/queues · subgraph · websockets · multi-chain · retries beyond simple idempotency · admin UI (the demo director is curl/Postman + the hidden /demo page) · x402 endpoints (roadmap slide only).
+Account systems beyond one SIWE session per connected wallet (no email/password, no org/team accounts — but *any* wallet can sign in and own its own Handler wallet) · Redis/queues · subgraph · websockets · multi-chain · retries beyond simple idempotency · admin UI (the demo director is curl/Postman + the hidden /demo page) · x402 endpoints (roadmap slide only).

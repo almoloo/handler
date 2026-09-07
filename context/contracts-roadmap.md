@@ -17,7 +17,7 @@
 | Typegen | forge build artifacts → wagmi/viem codegen in `packages/contracts` | One ABI source for web + api |
 
 **Chain: Base Sepolia** — Chainlink feeds live, ERC-8004 canonically deployed on Base, cheap and fast for retakes.
-⚠️ **1inch caveat (resolve day 1):** 1inch aggregation may not serve Base Sepolia. Plan A: run the **entire demo stack** (contracts, backend indexer/agents, frontend RPC) against a **persistent anvil fork of Base mainnet** — real 1inch routing, real Chainlink feeds, real ERC-8004 registries, deterministic takes, and near-instant demo resets via `evm_snapshot`/`evm_revert`; Base Sepolia then serves only as the public "try it live" deployment. Plan B: keep everything on Base Sepolia and route swaps through a mock router labeled honestly, submitting 1inch integration via the fork demo. Decide before writing swap code; the wallet's `execute()` doesn't change either way.
+⚠️ **1inch caveat (resolve day 1):** 1inch aggregation may not serve Base Sepolia. Plan A: run the **entire demo stack** (contracts, backend indexer/agents, frontend RPC) against a **persistent anvil fork of Base mainnet** — real 1inch routing, real Chainlink feeds, real ERC-8004 registries, deterministic takes, and near-instant demo resets via `evm_snapshot`/`evm_revert`; Base Sepolia then serves only as the public "try it live" deployment. Plan B: keep the public deployment on Base Sepolia with **swaps disabled in the UI** (the `allowSwaps` toggle greyed out with an honest "not available on this network" note) and run the swap path only on the fork. **No mock router under any plan** — a swap that doesn't route through 1inch is not a swap. Decide before writing swap code; the wallet's `execute()` doesn't change either way.
 
 ---
 
@@ -27,7 +27,7 @@
 HandlerWalletFactory ──deploys──▶ HandlerWallet (one per user, holds funds)
                                      │ consults
                                      ▼
-                                 TrustReader (ERC-8004 → tier, + demo override)
+                                 TrustReader (ERC-8004 → tier, read-only)
                                      ▲
 PriceConverter (lib) ── Chainlink ───┘ (USD math used inside HandlerWallet)
 ```
@@ -77,12 +77,14 @@ Events (frozen with backend by **end of day 2**):
 Note: `ExecutionBlocked` is *emitted from a try/catch wrapper?* — No: reverts don't emit. The backend indexer derives BLOCKED rows from failed tx traces **or** the wallet exposes `tryExecute()` that catches internal checks and emits `ExecutionBlocked` without reverting the outer tx. **Recommendation: implement `execute()` (hard revert, pure) + `tryExecute()` (returns bool + emits ExecutionBlocked) and have agents call `tryExecute()`** — blocked attempts then live on-chain as successful txs with a blocked event: indexable, provable in the video's block explorer shot, and no trace-parsing needed. This is the single most demo-critical contract decision.
 
 ### 2.2 TrustReader
-- `tierOf(address) → Tier`: resolves address → ERC-8004 agentId (Identity Registry) → reputation summary (Reputation Registry) → tier mapping (thresholds constant).
-- `setOverride(address, Tier)` `onlyOwner` — the seeded-fixture escape hatch for demo determinism; README discloses it plainly.
+- `tierOf(address) → Tier`: resolves address → ERC-8004 agentId (Identity Registry) → reputation summary (Reputation Registry) → tier mapping (thresholds constant, mirrored in the backend `trust/` module).
+- **No override path.** The current `setOverride` stub is transitional; the feature that lands real registry reads deletes it (and its event/tests) so the deployed contract has no owner-settable tier. Demo determinism comes from the showcase counterparties being *really registered* with *real* reputation entries, created once by a disclosed setup script — the product never writes reputation, but registering our own agents at setup time is allowed.
 - Unregistered address → `FLAGGED` by default (secure default doubles as the villain setup: the villain simply never registers).
+- Registry addresses are constructor-immutable; if a registry call reverts, `tierOf` returns `FLAGGED` (fail closed) rather than reverting the whole execution.
 
-### 2.3 PriceConverter (internal lib)
-- Chainlink round read with staleness check (`updatedAt` window, revert `StalePrice()`), decimals normalization, ETH + configured ERC20s → USD-8.
+### 2.3 PriceConverter
+- Chainlink round read with staleness check (`updatedAt` window, revert `StalePrice()`), decimals normalization, ETH + configured ERC20s → USD-8. Feed addresses are set once by the owner per token (`setFeed`), which is configuration, not a price: there is no `setRate`-style path that lets anyone assert a USD value. The current owner-settable-rate stub is transitional and is deleted by the feature that lands the Chainlink reads.
+- Neither stub (`TrustReader.setOverride`, `PriceConverter.setRate`) may ever be part of a public deployment; `DeployDev.s.sol` is the only script allowed to reference them, and only until they are gone.
 
 ### 2.4 HandlerWalletFactory
 - `createWallet(owner)` + deterministic address (CREATE2) so the frontend can precompute; emits `WalletCreated`.
@@ -106,8 +108,8 @@ Note: `ExecutionBlocked` is *emitted from a try/catch wrapper?* — No: reverts 
 |---|---|---|
 | 1 | Repo/Foundry setup in monorepo, chain decision (1inch Plan A/B spike), interfaces drafted | `packages/contracts` builds; plan chosen |
 | 2 | HandlerWallet core: policies, caps, epoch, tryExecute/execute, **events + errors frozen**; **first dev deployment** (chosen chain/anvil) with a pre-created dev wallet, address in shared config, redeployed daily as WIP evolves | Backend indexer unblocked against live logs |
-| 3 | TrustReader (8004 reads + override) wired into checks; **session interface frozen** | Riley (backend) unblocked; villain block (`ExecutionBlocked` via `tryExecute`) green in tests |
-| 4 | PriceConverter + Chainlink staleness; propose/approve/deny queue | Co-sign loop green in tests |
+| 3 | TrustReader real ERC-8004 reads (stub + `setOverride` removed) wired into checks; **session interface frozen** | Riley (backend) unblocked; villain block (`ExecutionBlocked` via `tryExecute`) green in tests against a registry mock *in the test file only*, plus a fork test against the real registries |
+| 4 | PriceConverter real Chainlink reads + staleness (stub + `setRate` removed); propose/approve/deny queue | Co-sign loop green in tests; `StalePrice()` has a test |
 | 5 | Factory + CREATE2; deploy scripts; formal testnet/fork deployment (frontend switches hire flow from the dev wallet's direct `hireAgent` to the factory) | Frontend hire flow has a real target |
 | 6 | Fuzz + invariant suite; fix findings; demo-replay script | Beats 1–4 green from forge script |
 | 7 | Freeze. Slither pass, README security notes, final deploy, verify on explorer | Verified contracts, addresses committed to shared config |
@@ -117,7 +119,7 @@ Note: `ExecutionBlocked` is *emitted from a try/catch wrapper?* — No: reverts 
 
 ## 5. Security Notes for the README (judges read these)
 
-Honest scope statement: single-owner wallet, no upgradeability, demo override in TrustReader disclosed, price staleness bounded, reentrancy guarded, session keys can *never* change policy or withdraw to themselves (explicit check: target ≠ sessionKey, no `updatePolicy` path). Known limitations listed beats pretending — ETHGlobal judges consistently reward teams that know their attack surface.
+Honest scope statement: single-owner wallet, no upgradeability, trust tiers read-only from ERC-8004 with no override, price staleness bounded, reentrancy guarded, session keys can *never* change policy or withdraw to themselves (explicit check: target ≠ sessionKey, no `updatePolicy` path). Disclose that the showcase counterparties were registered by the team's own setup script. Known limitations listed beats pretending — ETHGlobal judges consistently reward teams that know their attack surface.
 
 ## 6. Out of Scope
 

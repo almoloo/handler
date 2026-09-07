@@ -18,7 +18,7 @@ Built for **ETHGlobal ETHOnline 2026** (Sept 4–16, async), targeting the Ledge
 2. **Trust-aware policy** — spending rules that tighten or loosen based on the counterparty agent's ERC-8004 reputation (verified / new / flagged), not just static numbers.
 3. **Real economic action** — the agent actually does things (token swaps via 1inch, paying other agents), not a mock demo.
 4. **Consumer-grade UX** — fintech-simple screens (payroll view, notification cards, one-tap approve/deny), not a raw dashboard.
-5. **Provable, demo-first** — every "blocked" moment is a real, explorer-visible on-chain event, not a scripted illusion.
+5. **Provable, production-real** — every "blocked" moment is a real, explorer-visible on-chain event. The demo video is a scripted run of the *real product* with real wallets, real agents, and real registries; nothing in the codebase exists only to make the video look good.
 
 ---
 
@@ -31,15 +31,26 @@ Built for **ETHGlobal ETHOnline 2026** (Sept 4–16, async), targeting the Ledge
 - Owner can freeze an agent instantly.
 
 ### Trust Layer
-- Counterparty agents are scored via ERC-8004 Identity + Reputation registries into three tiers: Verified, New, Flagged.
-- A demo/seed override exists for deterministic video takes and is disclosed openly, never hidden.
+- Counterparty agents are scored via ERC-8004 Identity + Reputation registries into three tiers: Verified, New, Flagged. Unregistered addresses are Flagged.
+- Tiers come **only** from the registries — no seeded fixtures, no owner-settable override, no env flag that swaps in fake data. The showcase counterparties used in the video are real ERC-8004-registered agents (registered on-chain by a disclosed one-time setup script), so the demo reads the same code path as any user's wallet.
 
 ### Consumer App
-- Sign-in via SIWE (Sign-In with Ethereum): owner signs a nonce with their connected wallet to establish a real, session-backed login — no separate password/account system.
+- Sign-in via SIWE (Sign-In with Ethereum): owner signs a nonce with their connected wallet to establish a real, session-backed login — no separate password/account system. Every `/app` read and write is scoped to the signed-in wallet; any wallet can sign in, create a Handler wallet, and hire agents.
 - Payroll home screen: agents listed like employees, spent-today vs. allowance, one-tap freeze.
 - Hire flow: pick an agent, set an allowance slider, set three permission toggles — no seed phrases, no jargon on screen.
 - Notification cards: plain-English approved/blocked/pending events.
 - Approval sheet: decoded plain-English intent, one-tap deny, Ledger-signed approve.
+
+### Product integrity (non-negotiable)
+
+Handler is built as a working product that happens to be demoed, not a demo that happens to look like a product:
+
+- **Any wallet works.** There is no single hard-coded "demo wallet" that the app is built around. A fresh visitor connects their own wallet, signs in, creates a wallet through the factory, and hires an agent — the same path the video records.
+- **No dummy data in runtime code.** No mock stores, seeded fixtures, hardcoded prices, or trust overrides anywhere in `apps/web`, `apps/api`, or `packages/contracts` runtime paths. Test doubles live in test files only.
+- **Real integrations or nothing.** Prices come from Chainlink feeds with staleness checks; trust from ERC-8004 registries; swaps from 1inch. If an integration isn't ready, the feature is visibly incomplete — never silently stubbed.
+- **Reads and writes are both authenticated** and scoped to the session's wallet address. Only `/health`, `/prices`, `/auth/*`, and the marketing page are public.
+- **Tests are part of the deliverable**, not a nice-to-have: contracts have unit/fuzz/invariant coverage, the API has unit + e2e coverage for every endpoint (including auth scoping), and the web app builds clean with typed API clients.
+- **Demo tooling is isolated and non-destructive.** The `/demo` director exists only to trigger real agent actions against one designated showcase wallet. It is disabled unless `DEMO_ENABLED=true`, gated by session auth *and* a header token, and never deletes or rewrites another wallet's data.
 
 ### Out of scope (explicitly, for the hackathon window)
 Multi-chain, mobile-native app, full x402 integration, ERC-4337/account abstraction, on-chain reputation *writing*, dark mode.

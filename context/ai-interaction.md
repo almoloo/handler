@@ -19,7 +19,7 @@ This is the common workflow for every single feature/fix, in any of the three pa
 4. **Codegen (contracts changes only)** - If `packages/contracts` changed, run `pnpm codegen` and commit the regenerated `ts/generated.ts` in the same commit as the Solidity change — never leave generated types stale relative to the contracts.
 5. **Test** - Verify it works:
    - `apps/web`: check in the browser; `pnpm --filter web build` to check for errors.
-   - `apps/api`: `pnpm --filter api test` for unit tests; `pnpm --filter api build`.
+   - `apps/api`: `pnpm --filter api test` for unit tests and `pnpm --filter api test:e2e` for endpoint tests (every new endpoint gets an e2e test, including its auth/scoping behavior); `pnpm --filter api build`.
    - `packages/contracts`: `forge test`; for anything touching a demo beat, also run the relevant `script/DemoReplay.s.sol` step.
    - Cross-part changes: run all three before considering the feature done.
 6. **Iterate** - Iterate and change things if needed.
@@ -66,7 +66,13 @@ Review AI-generated code periodically, especially for:
 - Logic errors (edge cases — epoch-boundary math, stale price feeds, double-counted activity rows).
 - Patterns (matches existing codebase and the relevant roadmap?).
 
-## Demo Integrity
+## Product Integrity (not "demo integrity")
 
-- Every "blocked" or "approved" moment shown in the app or the demo video must correspond to a real on-chain transaction — never fake, mock, or hardcode a result for the sake of a smoother demo. If a real path isn't ready yet, say so rather than stubbing it silently.
-- The `/demo` director and `POST /demo/reset` endpoints are hackathon-only tooling — keep them clearly separated from user-facing code paths and never wire demo-only shortcuts into production logic.
+Handler is a real product that is *also* demoed — see `context/project-overview.md` "Product integrity". Apply these rules to every change:
+
+- Every "blocked", "approved", or "pending" moment shown in the app or the demo video must correspond to a real on-chain transaction — never fake, mock, or hardcode a result for the sake of a smoother demo. If a real path isn't ready yet, say so rather than stubbing it silently.
+- No fixtures, mocks, seeded overrides, hardcoded rates, or "demo mode" branches in runtime code. Test doubles belong in `*.spec.ts`/`*.t.sol` only. If a roadmap passage seems to ask for one, treat it as a conflict and flag it rather than building it.
+- Every feature must work for *any* signed-in wallet, not just a configured showcase wallet. Reads and writes are scoped to the session's address; never assume a single user.
+- Transitional stubs (e.g. the current owner-settable `TrustReader`/`PriceConverter`) are tracked debt with a named replacement feature. They must never reach a public deployment, and a new feature must not add another one.
+- The `/demo` director and `POST /demo/reset` are operator tooling for the video: they only trigger real agent actions against the designated showcase wallet, are disabled unless `DEMO_ENABLED=true`, sit behind session auth plus a header token, and never delete or rewrite data belonging to any other wallet. Never wire demo-only shortcuts into user-facing logic.
+- Tests are part of "done": a feature without its tests is not complete, regardless of the day-by-day schedule.
