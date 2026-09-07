@@ -35,6 +35,7 @@ Built for **ETHGlobal ETHOnline 2026** (Sept 4–16, async), targeting the Ledge
 - A demo/seed override exists for deterministic video takes and is disclosed openly, never hidden.
 
 ### Consumer App
+- Sign-in via SIWE (Sign-In with Ethereum): owner signs a nonce with their connected wallet to establish a real, session-backed login — no separate password/account system.
 - Payroll home screen: agents listed like employees, spent-today vs. allowance, one-tap freeze.
 - Hire flow: pick an agent, set an allowance slider, set three permission toggles — no seed phrases, no jargon on screen.
 - Notification cards: plain-English approved/blocked/pending events.
@@ -48,7 +49,7 @@ Multi-chain, mobile-native app, full x402 integration, ERC-4337/account abstract
 ## Technology Stack
 
 - **Web (`apps/web`)**: Next.js (App Router) + TypeScript, Tailwind, wagmi + viem, Framer Motion, Ledger Device Management Kit for co-signing.
-- **API (`apps/api`)**: NestJS + TypeScript, Prisma + PostgreSQL, viem for chain reads, SSE for realtime activity, cron-based indexer (no queue infra).
+- **API (`apps/api`)**: NestJS + TypeScript, Prisma + PostgreSQL, viem for chain reads, SSE for realtime activity, cron-based indexer (no queue infra), SIWE-based session authentication guarding all write endpoints.
 - **Contracts (`packages/contracts`)**: Solidity via Foundry, OpenZeppelin, Chainlink AggregatorV3 feeds, ERC-8004 registry reads. Deployed on Base Sepolia (or a persistent Base-mainnet anvil fork if 1inch requires it).
 - **Monorepo**: pnpm workspaces (`apps/*`, `packages/*`), shared contract ABIs/types generated via `@wagmi/cli`'s Foundry plugin into `packages/contracts/ts`, consumed by both apps as `@handler/contracts`.
 

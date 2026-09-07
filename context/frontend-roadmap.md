@@ -44,7 +44,7 @@ Repo conventions: `/app` routes, `/components/ui` (skinned primitives), `/compon
 
 ```
 /                 → Landing (marketing): hero, features, how it works, trust strip. "Launch app" → /app
-/app              → Payroll (home): agents-as-employees list
+/app              → Payroll (home): agents-as-employees list — gated behind SIWE sign-in (see §5)
 /app/hire         → Onboarding: 3-step "employ your agent" flow
 /app/agent/[id]   → Agent file: policy, trust badge, activity, freeze
 /app/activity     → Full activity feed (approved / blocked / pending)
@@ -89,6 +89,7 @@ Navigation: two-tab bar (Payroll · Activity) + a floating "Hire agent" action. 
 
 ## 5. Data & Contract Integration
 
+- **Sign-in:** connecting a wallet (wagmi) is not itself a session. Entering `/app` triggers SIWE: `POST /auth/nonce` for the connected address → owner signs the SIWE message in their wallet (a single, familiar signature prompt, no gas) → `POST /auth/verify` → backend sets a session cookie. `TanStack Query` calls carry the cookie; a 401 anywhere in `/app` bounces back to a lightweight "sign in to continue" screen, not the landing page. Disconnecting the wallet or switching accounts clears the session (`POST /auth/logout`) and re-prompts. This is a one-time-per-session gate, not a per-action step — it does not replace the owner-signed contract txs below.
 - **Reads:** all feed/list data (agents, activity, pending approvals, trust tiers, prices) comes from the **backend REST + SSE** — the backend indexes and decodes chain events once (see backend roadmap §4.1). The only direct chain reads client-side are the connected owner wallet's balance/network via wagmi.
 - **Writes (all owner-signed, client-side via wagmi — the backend never holds the owner key):** create wallet (factory), hire agent, update allowance, freeze, approve pending tx (Ledger path), deny. After a write lands, the backend indexer picks it up within one tick; optional `POST /approvals/:id/approved|denied` callbacks give the UI instant feedback ahead of indexing.
 - **Trust layer:** trust tiers arrive pre-computed from the backend (`GET /agents`); the frontend renders badges only. The seeded-fixture logic lives server-side (backend roadmap §4.3), not in the client.
@@ -116,7 +117,7 @@ Rule: every beat produces a *real* on-chain transaction. The script controls tim
 |---|---|---|
 | 1 | Scaffold, tokens, wagmi config, UI primitives skinned | App shell deployed to Vercel |
 | 2 | Payroll screen with mock store; TrustBadge + ActivityItem components | Home looks screenshot-worthy on mock data |
-| 3 | Hire flow against the contracts lane's **dev deployment** (direct `hireAgent` on the pre-created dev wallet; factory/CREATE2 arrives day 5) | Can employ an agent for real |
+| 3 | Hire flow against the contracts lane's **dev deployment** (direct `hireAgent` on the pre-created dev wallet; factory/CREATE2 arrives day 5); SIWE sign-in gate on `/app` against the backend's day-3 `auth` module | Can employ an agent for real; `/app` requires a signed-in wallet, session survives a refresh |
 | 4 | Activity feed + notification cards on **backend REST + SSE** (mocks off) | Live txs appear as cards unaided |
 | 5 | Agent file + freeze + policy sentences; USD framing via `GET /prices`; switch hire flow to the factory | Policy round-trips on-chain |
 | 6 | Approval sheet + Ledger co-sign path | Full pending→approve/deny loop works |
@@ -137,7 +138,7 @@ Shared risk rule: any day-4+ slip eats polish, never the demo engine. If forced 
 - [ ] Reset → full clean state in one tap, < 30 seconds
 - [ ] Screenshots exported for the showcase page: Payroll, Hire step 2, slate block card, approval sheet (Ledger)
 - [ ] Reduced-motion respected; focus states visible (judges sometimes open the live app — it should survive a keyboard)
-- [ ] Live deployment link works logged-out with a "Try the demo" seeded mode
+- [ ] Live deployment link works for a fresh visitor via one SIWE sign-in into a "Try the demo" seeded wallet
 
 ---
 

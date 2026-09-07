@@ -16,6 +16,7 @@ One change vs. the frontend roadmap: the frontend **no longer polls raw chain lo
 | Scheduling | `@nestjs/schedule` cron + in-process job runner | No Redis/BullMQ — the queue is Postgres rows + a 3s tick |
 | Realtime | SSE endpoint (`/events/stream`) | Simpler than websockets; one-directional is all the UI needs |
 | Config | `@nestjs/config` + zod-validated env | Fail fast on missing keys during setup |
+| Auth | SIWE (`siwe` package) + signed, HTTP-only session cookie | Real login tied to the owner's wallet, no separate password/account system |
 | Deploy | Your VPS (Docker Compose: api + postgres) or Railway | Whichever you can stand up in <1 hour on day 1 |
 | Monorepo | pnpm workspaces: `apps/web`, `apps/api`, `packages/contracts` | ABIs + types generated once from the Solidity build, imported everywhere |
 
@@ -25,6 +26,7 @@ One change vs. the frontend roadmap: the frontend **no longer polls raw chain lo
 
 ```
 apps/api/src/
+  auth/         SIWE nonce issuance + verification, session cookie guard
   chain/        viem clients, contract bindings, tx helpers, nonce mgmt
   indexer/      cron: pull logs → decode → upsert into Postgres
   agents/       the agent runtime (good agent, subcontractor, villain)
@@ -36,7 +38,7 @@ apps/api/src/
   health/       /health for the video-day sanity check
 ```
 
-**Dependency rule:** `agents`, `indexer`, `demo` may depend on `chain`; `activity`, `policies`, `trust`, `prices` are read/serve modules the frontend hits. Nothing circular, no shared mutable state outside Postgres.
+**Dependency rule:** `agents`, `indexer`, `demo` may depend on `chain`; `activity`, `policies`, `trust`, `prices` are read/serve modules the frontend hits. `auth` depends on nothing but Postgres (sessions table) and is applied as a guard in front of every write route. Nothing circular, no shared mutable state outside Postgres.
 
 ---
 
@@ -106,9 +108,14 @@ POST /approvals/:id/denied       optional fast-path callback after the owner-sig
                                   callbacks just make the UI instant)
 GET  /prices                     cached USD conversions
 GET  /health                     RPC block height, DB, agent balances — video-day checklist
+
+POST /auth/nonce                 { address } → one-time SIWE nonce
+POST /auth/verify                { message, signature } → verifies SIWE message, issues session cookie
+POST /auth/logout                clears the session cookie
+GET  /auth/session               current session's address, or 401
 ```
 
-Auth: none for reads in demo mode (single-user hackathon app); writes gated by the same header token as the frontend build ships. Note this honestly in the README as demo-scope.
+Auth: real SIWE-based session auth — the owner signs a SIWE message with their connected wallet (`/auth/nonce` → sign → `/auth/verify`), the API issues a signed, HTTP-only session cookie scoped to that address, and every write route (`/agents/hire`, `/approvals/:id/*`, `/demo/*`) requires a valid session whose address matches the wallet the write claims to act for. Reads stay open in demo mode (single-user hackathon app), matching the existing read/write split above. The demo director (`/demo/*`) is additionally gated by its header token, on top of session auth.
 
 ---
 
@@ -118,7 +125,7 @@ Auth: none for reads in demo mode (single-user hackathon app); writes gated by t
 |---|---|---|
 | 1 | Monorepo, Nest scaffold, Prisma + Postgres up, viem clients, env validation | `/health` green on deployed VPS |
 | 2 | Shared `packages/contracts` typegen; indexer walking logs from the contracts lane's **day-2 dev deployment** into Postgres | Events from a manual tx appear as rows |
-| 3 | `agents` runtime: Riley + 1inch swap through the policy wallet (session interface frozen this day) | Beat 1 runs from a curl |
+| 3 | `agents` runtime: Riley + 1inch swap through the policy wallet (session interface frozen this day); `auth` module: SIWE nonce/verify + session cookie guard on write routes | Beat 1 runs from a curl; hire/freeze/approve/deny reject without a valid session |
 | 4 | Trust service (chain + fixtures) · activity REST + SSE | Frontend feed switches from mocks to API |
 | 5 | Hire-metadata endpoint + freeze/approval event handling in indexer · prices module | Frontend hire flow end-to-end |
 | 6 | Approvals pipeline (pending rows + approved/denied callbacks) · subcontractor + villain agents | Beats 2–4 run from curl |
@@ -140,4 +147,4 @@ If the 1inch decision lands on **Plan A (anvil fork of Base mainnet)** — see c
 
 ## 8. Explicitly Out of Scope
 
-Auth/users · Redis/queues · subgraph · websockets · multi-chain · retries beyond simple idempotency · admin UI (the demo director is curl/Postman + the hidden /demo page) · x402 endpoints (roadmap slide only).
+Multi-user account systems beyond one session per connected wallet (no email/password, no org/team accounts) · Redis/queues · subgraph · websockets · multi-chain · retries beyond simple idempotency · admin UI (the demo director is curl/Postman + the hidden /demo page) · x402 endpoints (roadmap slide only).
