@@ -22,8 +22,9 @@ focus-trap/portal/Escape/ARIA behavior, not because the canvas used it — the
 canvas didn't). All 27 components are exported from
 `apps/web/components/ui/index.ts` but remain unconsumed by any screen. The
 marketing landing page (see History) was the first consumer; building the
-real Payroll screen at `/app` (per `frontend-roadmap.md` §7 day 2) is the
-natural next `/feature`.
+real Payroll screen at `/app` (per `frontend-roadmap.md` §7 day 2) is still
+the natural next frontend `/feature`, once contracts unblock it or in
+parallel on mock data.
 
 ---
 
@@ -43,3 +44,5 @@ natural next `/feature`.
 - **4f. Overlay components — Dialog, Menu** — port Menu as a straight canvas port; build Dialog on @headlessui/react's real Dialog primitive instead (focus trap, portal, Escape, ARIA) since it's the Ledger co-sign confirmation screen, not a cosmetic primitive; audit verified the HeadlessUI claims directly against its shipped source (Completed)
 - **4g. Data & Trust components — Card, ListRow, StatCard, Table, TrustIndicator** — port the final 5 primitives from the canvas into components/ui/, generalizing a Tailwind default-value collision rule (rounded-*/tracking-* etc. must use [var(--x)], never the bare utility) found via Table's tracking-wider; completes the 4a–4g design-system rollout. Note: Table's div-based markup (matching the canvas) lacks semantic `<table>` structure — same inherited, deferred-to-day-8 gap class as Menu/NavItem/Tooltip, despite this feature having no clickable elements otherwise (Completed)
 - **Marketing landing page at `/`** — build the public marketing homepage from the imported `Handler Landing Page.dc.html` canvas, re-skinned onto the current design-system tokens; moves the future in-app Payroll screen from `/` to `/app` per confirmed scope decision (Completed)
+- **HandlerWallet core contract** — the guarded agent wallet: `AgentPolicy` management, the `execute()`/`tryExecute()` 7-step check pipeline, a minimal propose/approve/deny cosign queue, and every event/custom error the backend indexer needs, per contracts-roadmap §2.1's day-2 exit criterion; `TrustReader`/`PriceConverter` land as owner-settable stubs behind stable interfaces, with real ERC-8004/Chainlink reads deferred to later features. Audit + fixes: rejected `address(0)` as a call target (a loose FLAGGED trust floor would otherwise let an agent burn funds to it), deduplicated the epoch-roll math shared by `execute()`/`tryExecute()` and `approve()`, fixed `nonReentrant` modifier ordering, added an explicit overflow guard on `PriceConverter`'s USD-8 cast, and strengthened two event-emission tests that weren't actually checking their payload (Completed)
+</content>
