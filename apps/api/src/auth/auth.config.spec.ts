@@ -6,8 +6,9 @@ describe('parseAuthEnv', () => {
     const env = parseAuthEnv({ SESSION_SECRET: 'a'.repeat(32) });
     expect(env.SESSION_TTL_SECONDS).toBe(60 * 60 * 24 * 7);
     expect(env.SIWE_NONCE_TTL_SECONDS).toBe(5 * 60);
-    expect(env.SIWE_DOMAIN).toBe('localhost');
+    expect(env.SIWE_DOMAIN).toBe('localhost:3000');
     expect(env.SIWE_CHAIN_ID).toBe(31337);
+    expect(env.WEB_ORIGIN).toBe('http://localhost:3000');
   });
 
   it('parses valid overrides', () => {
@@ -17,11 +18,13 @@ describe('parseAuthEnv', () => {
       SIWE_NONCE_TTL_SECONDS: '120',
       SIWE_DOMAIN: 'handler.example',
       SIWE_CHAIN_ID: '84532',
+      WEB_ORIGIN: 'https://handler.example',
     });
     expect(env.SESSION_TTL_SECONDS).toBe(3600);
     expect(env.SIWE_NONCE_TTL_SECONDS).toBe(120);
     expect(env.SIWE_DOMAIN).toBe('handler.example');
     expect(env.SIWE_CHAIN_ID).toBe(84532);
+    expect(env.WEB_ORIGIN).toBe('https://handler.example');
   });
 
   it('throws when SESSION_SECRET is missing', () => {

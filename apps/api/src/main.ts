@@ -5,7 +5,9 @@ import { parseAuthEnv } from './auth/auth.config.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.use(cookieParser(parseAuthEnv().SESSION_SECRET));
+  const authEnv = parseAuthEnv();
+  app.enableCors({ origin: authEnv.WEB_ORIGIN, credentials: true });
+  app.use(cookieParser(authEnv.SESSION_SECRET));
   await app.listen(process.env.PORT ?? 3000);
 }
 await bootstrap();

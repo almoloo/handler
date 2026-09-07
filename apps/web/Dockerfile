@@ -14,6 +14,11 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
+# Next.js inlines NEXT_PUBLIC_* vars into the client bundle at build time —
+# setting it only as a runtime container env var (docker-compose.prod.yml)
+# has no effect, so it must be threaded in here as a build arg.
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN pnpm --filter web build
 
 # Next's standalone output traces from the pnpm workspace root, so it
