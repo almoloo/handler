@@ -4,6 +4,10 @@
   "description": "",
   "main": "ts/generated.ts",
   "types": "ts/generated.ts",
+  "exports": {
+    ".": "./ts/generated.ts",
+    "./addresses": "./ts/addresses.ts"
+  },
   "scripts": {
     "codegen": "forge build && wagmi generate",
     "build": "forge build",
