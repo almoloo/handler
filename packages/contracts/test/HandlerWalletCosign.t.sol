@@ -3,13 +3,13 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {HandlerWallet} from "../src/HandlerWallet.sol";
-import {TrustReader} from "../src/TrustReader.sol";
+import {MockTrustReader} from "./mocks/MockTrustReader.sol";
 import {PriceConverter} from "../src/PriceConverter.sol";
 import {Tier} from "../src/interfaces/ITrustReader.sol";
 
 contract HandlerWalletCosignTest is Test {
     HandlerWallet wallet;
-    TrustReader trustReader;
+    MockTrustReader trustReader;
     PriceConverter priceConverter;
 
     address owner = makeAddr("owner");
@@ -20,11 +20,11 @@ contract HandlerWalletCosignTest is Test {
 
     function setUp() public {
         vm.startPrank(owner);
-        trustReader = new TrustReader(owner);
+        trustReader = new MockTrustReader();
         priceConverter = new PriceConverter(owner);
         wallet = new HandlerWallet(owner, trustReader, priceConverter);
         priceConverter.setRate(address(0), ETH_USD8, 18);
-        trustReader.setOverride(recipient, Tier.NEW);
+        trustReader.setTier(recipient, Tier.NEW);
 
         HandlerWallet.AgentPolicy memory policy = HandlerWallet.AgentPolicy({
             dailyCapUsd: 1_000_00000000,
@@ -103,7 +103,7 @@ contract HandlerWalletCosignTest is Test {
         vm.prank(owner);
         wallet.setKnownRouter(router, true);
         vm.prank(owner);
-        trustReader.setOverride(router, Tier.NEW);
+        trustReader.setTier(router, Tier.NEW);
 
         vm.prank(sessionKey);
         bytes32 id = wallet.propose(HandlerWallet.Call({target: router, data: hex"1234", value: 0.03 ether})); // $60

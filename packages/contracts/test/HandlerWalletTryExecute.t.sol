@@ -4,13 +4,13 @@ pragma solidity ^0.8.26;
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {HandlerWallet} from "../src/HandlerWallet.sol";
-import {TrustReader} from "../src/TrustReader.sol";
+import {MockTrustReader} from "./mocks/MockTrustReader.sol";
 import {PriceConverter} from "../src/PriceConverter.sol";
 import {Tier} from "../src/interfaces/ITrustReader.sol";
 
 contract HandlerWalletTryExecuteTest is Test {
     HandlerWallet wallet;
-    TrustReader trustReader;
+    MockTrustReader trustReader;
     PriceConverter priceConverter;
 
     address owner = makeAddr("owner");
@@ -22,7 +22,7 @@ contract HandlerWalletTryExecuteTest is Test {
 
     function setUp() public {
         vm.startPrank(owner);
-        trustReader = new TrustReader(owner);
+        trustReader = new MockTrustReader();
         priceConverter = new PriceConverter(owner);
         wallet = new HandlerWallet(owner, trustReader, priceConverter);
         priceConverter.setRate(address(0), ETH_USD8, 18);
@@ -59,7 +59,7 @@ contract HandlerWalletTryExecuteTest is Test {
     function test_TryExecute_TransferHappyPath_ReturnsTrueAndMovesFunds() public {
         _hire(_policy(1_000_00000000, 100_00000000, 50_00000000, true, false));
         vm.prank(owner);
-        trustReader.setOverride(recipient, Tier.NEW);
+        trustReader.setTier(recipient, Tier.NEW);
 
         uint256 recipientBefore = recipient.balance;
 
@@ -125,7 +125,7 @@ contract HandlerWalletTryExecuteTest is Test {
     function test_TryExecute_ExceedsPerTxCap_EmitsBlockedReturnsFalse() public {
         _hire(_policy(1_000_00000000, 100_00000000, 50_00000000, true, false));
         vm.prank(owner);
-        trustReader.setOverride(recipient, Tier.NEW);
+        trustReader.setTier(recipient, Tier.NEW);
 
         vm.expectEmit(true, false, false, true, address(wallet));
         emit HandlerWallet.ExecutionBlocked(sessionKey, HandlerWallet.BlockReason.EXCEEDS_PER_TX_CAP, 400_00000000);
@@ -139,7 +139,7 @@ contract HandlerWalletTryExecuteTest is Test {
     function test_TryExecute_ExceedsDailyAllowance_EmitsBlockedReturnsFalse() public {
         _hire(_policy(50_00000000, 100_00000000, 100_00000000, true, false));
         vm.prank(owner);
-        trustReader.setOverride(recipient, Tier.NEW);
+        trustReader.setTier(recipient, Tier.NEW);
 
         vm.startPrank(sessionKey);
         assertTrue(wallet.tryExecute(HandlerWallet.Call({target: recipient, data: "", value: 0.02 ether}))); // $40
@@ -155,7 +155,7 @@ contract HandlerWalletTryExecuteTest is Test {
     function test_TryExecute_RequiresCosign_ProposesInsteadOfBlocking() public {
         _hire(_policy(1_000_00000000, 100_00000000, 50_00000000, true, false));
         vm.prank(owner);
-        trustReader.setOverride(recipient, Tier.NEW);
+        trustReader.setTier(recipient, Tier.NEW);
 
         vm.recordLogs();
         vm.prank(sessionKey);

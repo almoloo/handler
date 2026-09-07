@@ -3,13 +3,13 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {HandlerWallet} from "../src/HandlerWallet.sol";
-import {TrustReader} from "../src/TrustReader.sol";
+import {MockTrustReader} from "./mocks/MockTrustReader.sol";
 import {PriceConverter} from "../src/PriceConverter.sol";
 import {Tier} from "../src/interfaces/ITrustReader.sol";
 
 contract HandlerWalletExecuteTest is Test {
     HandlerWallet wallet;
-    TrustReader trustReader;
+    MockTrustReader trustReader;
     PriceConverter priceConverter;
 
     address owner = makeAddr("owner");
@@ -21,7 +21,7 @@ contract HandlerWalletExecuteTest is Test {
 
     function setUp() public {
         vm.startPrank(owner);
-        trustReader = new TrustReader(owner);
+        trustReader = new MockTrustReader();
         priceConverter = new PriceConverter(owner);
         wallet = new HandlerWallet(owner, trustReader, priceConverter);
         priceConverter.setRate(address(0), ETH_USD8, 18);
@@ -65,7 +65,7 @@ contract HandlerWalletExecuteTest is Test {
     function test_Execute_TransferHappyPath_UpdatesSpendAndMovesFunds() public {
         _hire(_policy(1_000_00000000, 100_00000000, 50_00000000, true, false));
         vm.prank(owner);
-        trustReader.setOverride(recipient, Tier.NEW);
+        trustReader.setTier(recipient, Tier.NEW);
 
         uint256 recipientBefore = recipient.balance;
 
@@ -123,7 +123,7 @@ contract HandlerWalletExecuteTest is Test {
     function test_Execute_RevertsOnExceedsPerTxCap() public {
         _hire(_policy(1_000_00000000, 100_00000000, 50_00000000, true, false));
         vm.prank(owner);
-        trustReader.setOverride(recipient, Tier.NEW);
+        trustReader.setTier(recipient, Tier.NEW);
 
         // 0.2 ETH = $400 > $100 per-tx cap.
         vm.prank(sessionKey);
@@ -135,7 +135,7 @@ contract HandlerWalletExecuteTest is Test {
         // dailyCap $50, perTxCap/cosign raised so only the daily check can fail.
         _hire(_policy(50_00000000, 100_00000000, 100_00000000, true, false));
         vm.prank(owner);
-        trustReader.setOverride(recipient, Tier.NEW);
+        trustReader.setTier(recipient, Tier.NEW);
 
         vm.startPrank(sessionKey);
         wallet.execute(HandlerWallet.Call({target: recipient, data: "", value: 0.02 ether})); // $40, ok
@@ -149,7 +149,7 @@ contract HandlerWalletExecuteTest is Test {
     function test_Execute_RevertsRequiresCosignAboveThreshold() public {
         _hire(_policy(1_000_00000000, 100_00000000, 50_00000000, true, false));
         vm.prank(owner);
-        trustReader.setOverride(recipient, Tier.NEW);
+        trustReader.setTier(recipient, Tier.NEW);
 
         // 0.03 ETH = $60: under the $100 per-tx cap and $1,000 daily cap, but over the $50 cosign threshold.
         vm.prank(sessionKey);

@@ -3,13 +3,13 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {HandlerWallet} from "../src/HandlerWallet.sol";
-import {TrustReader} from "../src/TrustReader.sol";
+import {MockTrustReader} from "./mocks/MockTrustReader.sol";
 import {PriceConverter} from "../src/PriceConverter.sol";
 import {Tier} from "../src/interfaces/ITrustReader.sol";
 
 contract HandlerWalletTest is Test {
     HandlerWallet wallet;
-    TrustReader trustReader;
+    MockTrustReader trustReader;
     PriceConverter priceConverter;
 
     address owner = makeAddr("owner");
@@ -17,7 +17,7 @@ contract HandlerWalletTest is Test {
 
     function setUp() public {
         vm.startPrank(owner);
-        trustReader = new TrustReader(owner);
+        trustReader = new MockTrustReader();
         priceConverter = new PriceConverter(owner);
         wallet = new HandlerWallet(owner, trustReader, priceConverter);
         vm.stopPrank();

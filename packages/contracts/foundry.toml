@@ -6,5 +6,10 @@ libs = ["lib"]
 # addresses committed in packages/contracts/ts/addresses.ts are deterministic only as long
 # as the compiler producing them doesn't drift.
 solc = "0.8.26"
+# Required to compile TrustReader.t.sol's mock registries: matching IReputationRegistry's
+# 7-value readAllFeedback exactly (to faithfully mirror the real deployed interface) hits
+# legacy codegen's stack-too-deep limit. Deploy addresses in ts/addresses.ts are CREATE
+# (deployer+nonce), not CREATE2/bytecode-hash-based, so this doesn't affect them.
+via_ir = true
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

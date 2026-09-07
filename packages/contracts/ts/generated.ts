@@ -550,6 +550,20 @@ export const handlerWalletAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// IIdentityRegistry
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const iIdentityRegistryAbi = [
+  {
+    type: 'function',
+    inputs: [{ name: 'agentId', internalType: 'uint256', type: 'uint256' }],
+    name: 'getAgentWallet',
+    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    stateMutability: 'view',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // IMulticall3
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -810,10 +824,62 @@ export const iPriceConverterAbi = [
 ] as const
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// IReputationRegistry
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const iReputationRegistryAbi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: 'agentId', internalType: 'uint256', type: 'uint256' },
+      { name: 'clientAddresses', internalType: 'address[]', type: 'address[]' },
+      { name: 'tag1', internalType: 'string', type: 'string' },
+      { name: 'tag2', internalType: 'string', type: 'string' },
+      { name: 'includeRevoked', internalType: 'bool', type: 'bool' },
+    ],
+    name: 'readAllFeedback',
+    outputs: [
+      { name: 'clients', internalType: 'address[]', type: 'address[]' },
+      { name: 'feedbackIndexes', internalType: 'uint64[]', type: 'uint64[]' },
+      { name: 'values', internalType: 'int128[]', type: 'int128[]' },
+      { name: 'valueDecimals', internalType: 'uint8[]', type: 'uint8[]' },
+      { name: 'tag1s', internalType: 'string[]', type: 'string[]' },
+      { name: 'tag2s', internalType: 'string[]', type: 'string[]' },
+      { name: 'revokedStatuses', internalType: 'bool[]', type: 'bool[]' },
+    ],
+    stateMutability: 'view',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ITrustReader
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 export const iTrustReaderAbi = [
+  {
+    type: 'function',
+    inputs: [{ name: 'account', internalType: 'address', type: 'address' }],
+    name: 'tierOf',
+    outputs: [{ name: '', internalType: 'enum Tier', type: 'uint8' }],
+    stateMutability: 'view',
+  },
+] as const
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MockTrustReader
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+export const mockTrustReaderAbi = [
+  {
+    type: 'function',
+    inputs: [
+      { name: 'account', internalType: 'address', type: 'address' },
+      { name: 'tier', internalType: 'enum Tier', type: 'uint8' },
+    ],
+    name: 'setTier',
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
   {
     type: 'function',
     inputs: [{ name: 'account', internalType: 'address', type: 'address' }],
@@ -1103,30 +1169,60 @@ export const reentrancyGuardAbi = [
 export const trustReaderAbi = [
   {
     type: 'constructor',
-    inputs: [{ name: 'owner_', internalType: 'address', type: 'address' }],
+    inputs: [
+      {
+        name: 'identityRegistry_',
+        internalType: 'contract IIdentityRegistry',
+        type: 'address',
+      },
+      {
+        name: 'reputationRegistry_',
+        internalType: 'contract IReputationRegistry',
+        type: 'address',
+      },
+    ],
     stateMutability: 'nonpayable',
   },
   {
     type: 'function',
     inputs: [],
-    name: 'owner',
-    outputs: [{ name: '', internalType: 'address', type: 'address' }],
+    name: 'VERIFIED_MIN_FEEDBACK_COUNT',
+    outputs: [{ name: '', internalType: 'uint256', type: 'uint256' }],
     stateMutability: 'view',
   },
   {
     type: 'function',
     inputs: [],
-    name: 'renounceOwnership',
-    outputs: [],
-    stateMutability: 'nonpayable',
+    name: 'VERIFIED_MIN_SCORE_WAD',
+    outputs: [{ name: '', internalType: 'int256', type: 'int256' }],
+    stateMutability: 'view',
   },
   {
     type: 'function',
-    inputs: [
-      { name: 'account', internalType: 'address', type: 'address' },
-      { name: 'tier', internalType: 'enum Tier', type: 'uint8' },
+    inputs: [],
+    name: 'identityRegistry',
+    outputs: [
+      { name: '', internalType: 'contract IIdentityRegistry', type: 'address' },
     ],
-    name: 'setOverride',
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [],
+    name: 'reputationRegistry',
+    outputs: [
+      {
+        name: '',
+        internalType: 'contract IReputationRegistry',
+        type: 'address',
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    inputs: [{ name: 'agentId', internalType: 'uint256', type: 'uint256' }],
+    name: 'syncAgent',
     outputs: [],
     stateMutability: 'nonpayable',
   },
@@ -1138,58 +1234,22 @@ export const trustReaderAbi = [
     stateMutability: 'view',
   },
   {
-    type: 'function',
-    inputs: [{ name: 'newOwner', internalType: 'address', type: 'address' }],
-    name: 'transferOwnership',
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
     type: 'event',
     anonymous: false,
     inputs: [
       {
-        name: 'previousOwner',
+        name: 'wallet',
         internalType: 'address',
         type: 'address',
         indexed: true,
       },
       {
-        name: 'newOwner',
-        internalType: 'address',
-        type: 'address',
+        name: 'agentId',
+        internalType: 'uint256',
+        type: 'uint256',
         indexed: true,
       },
     ],
-    name: 'OwnershipTransferred',
-  },
-  {
-    type: 'event',
-    anonymous: false,
-    inputs: [
-      {
-        name: 'account',
-        internalType: 'address',
-        type: 'address',
-        indexed: true,
-      },
-      {
-        name: 'tier',
-        internalType: 'enum Tier',
-        type: 'uint8',
-        indexed: false,
-      },
-    ],
-    name: 'TierOverrideSet',
-  },
-  {
-    type: 'error',
-    inputs: [{ name: 'owner', internalType: 'address', type: 'address' }],
-    name: 'OwnableInvalidOwner',
-  },
-  {
-    type: 'error',
-    inputs: [{ name: 'account', internalType: 'address', type: 'address' }],
-    name: 'OwnableUnauthorizedAccount',
+    name: 'AgentSynced',
   },
 ] as const
