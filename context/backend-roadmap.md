@@ -138,7 +138,7 @@ Auth: real SIWE-based session auth — the owner signs a SIWE message with their
 | 8 | Failure drills: RPC flake, double-fire beats, restart mid-take; showcase agents' on-chain registrations final | Reset < 30s, beats idempotent |
 | 9 | Video day: backend on standby, `/health` open in a tab, no deploys | — |
 
-Coordination points with the Solidity lane: event signatures (incl. the `ExecutionBlocked` reason enum) + custom errors frozen by **end of day 2** (indexer depends on them); `tryExecute()`/session interface frozen by **day 3** (Riley depends on it); a dev deployment must exist from day 2 (contracts roadmap day-by-day).
+Coordination points with the Solidity lane: event signatures (incl. the `ExecutionBlocked` reason enum) + custom errors frozen by **end of day 2** (indexer depends on them); `tryExecute()`/session interface frozen by **day 3** (Riley depends on it — the frozen shape is documented at `apps/api/src/agents/agents.module.ts`); a dev deployment must exist from day 2 (contracts roadmap day-by-day).
 
 If the 1inch decision lands on **Plan A (anvil fork of Base mainnet)** — see contracts roadmap §1 — the whole stack (indexer, agents, frontend RPC) points at the persistent anvil instance, and `/demo/reset` gets a much better implementation: `evm_snapshot`/`evm_revert` makes reset near-instant. The Base Sepolia deployment then serves only as the public "try it live" link.
 
