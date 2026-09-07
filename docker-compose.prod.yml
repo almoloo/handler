@@ -29,6 +29,7 @@ services:
       CHAIN_ID: ${CHAIN_ID}
       DEMO_TOKEN: ${DEMO_TOKEN}
       ONEINCH_API_KEY: ${ONEINCH_API_KEY}
+      RILEY_SESSION_KEY: ${RILEY_SESSION_KEY}
       PORT: ${PORT}
     ports:
       - "3001:3000"
