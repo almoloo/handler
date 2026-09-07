@@ -12,12 +12,12 @@
 | Toolchain | **Foundry** (forge/anvil/cast) | Fast tests, fuzzing, cheatcodes, mainnet forking |
 | Solidity | 0.8.26+ | Custom errors, transient-storage-ready |
 | Libraries | OpenZeppelin (Ownable2Step, ReentrancyGuard, SafeERC20, EnumerableSet) | Don't hand-roll audited things |
-| Feeds | Chainlink AggregatorV3 (ETH/USD, USDC/USD) | USD-denominated caps — partner track |
+| Feeds | Chainlink AggregatorV3 (ETH/USD, USDC/USD) | USD-denominated caps — a real integration, but on its own doesn't qualify for ETHOnline 2026's open Chainlink prize (that needs a Confidential Workflow; see backend roadmap §4.5, a backend-side stretch, not a contracts change) |
 | Trust | ERC-8004 Identity + Reputation registry reads | The differentiator |
 | Typegen | forge build artifacts → wagmi/viem codegen in `packages/contracts` | One ABI source for web + api |
 
 **Chain: Base Sepolia** — Chainlink feeds live, ERC-8004 canonically deployed on Base, cheap and fast for retakes.
-⚠️ **1inch caveat (resolve day 1):** 1inch aggregation may not serve Base Sepolia. Plan A: run the **entire demo stack** (contracts, backend indexer/agents, frontend RPC) against a **persistent anvil fork of Base mainnet** — real 1inch routing, real Chainlink feeds, real ERC-8004 registries, deterministic takes, and near-instant demo resets via `evm_snapshot`/`evm_revert`; Base Sepolia then serves only as the public "try it live" deployment. Plan B: keep the public deployment on Base Sepolia with **swaps disabled in the UI** (the `allowSwaps` toggle greyed out with an honest "not available on this network" note) and run the swap path only on the fork. **No mock router under any plan** — a swap that doesn't route through 1inch is not a swap. Decide before writing swap code; the wallet's `execute()` doesn't change either way.
+⚠️ **1inch caveat (resolve day 1):** 1inch remains a real product feature (Riley's swap), not a targeted prize track — ETHOnline 2026's 1inch track requires deploying/using their Aqua/SwapVM contracts, which is out of scope here (see `project-overview.md`). 1inch aggregation may not serve Base Sepolia. Plan A: run the **entire demo stack** (contracts, backend indexer/agents, frontend RPC) against a **persistent anvil fork of Base mainnet** — real 1inch routing, real Chainlink feeds, real ERC-8004 registries, deterministic takes, and near-instant demo resets via `evm_snapshot`/`evm_revert`; Base Sepolia then serves only as the public "try it live" deployment. Plan B: keep the public deployment on Base Sepolia with **swaps disabled in the UI** (the `allowSwaps` toggle greyed out with an honest "not available on this network" note) and run the swap path only on the fork. **No mock router under any plan** — a swap that doesn't route through 1inch is not a swap. Decide before writing swap code; the wallet's `execute()` doesn't change either way.
 
 ---
 

@@ -8,7 +8,7 @@
 
 Agentic commerce is growing fast: people and businesses are handing AI agents real spending power (swaps, subscriptions, agent-to-agent payments) with almost no guardrails beyond static spending caps. Existing agent wallets (MetaMask Agent Wallet, Coinbase Agentic Wallets) enforce fixed limits that don't know anything about *who* the agent is paying. Handler is a consumer app — "the banking app for your AI" — that lets a person hire an agent, give it an allowance and rules, and have those rules enforced on-chain, including rules that adapt to the counterparty's on-chain reputation.
 
-Built for **ETHGlobal ETHOnline 2026** (Sept 4–16, async), targeting the Ledger, Chainlink, and 1inch partner tracks.
+Built for **ETHGlobal ETHOnline 2026** (Sept 4–16, async). Primary partner-track target: **Ledger** (AI Agents x Ledger — device-backed session-key custody plus human-in-the-loop co-sign). Stretch target: **Chainlink**'s Confidential Workflow track. 1inch swaps remain a real product feature (Riley's rebalancing) but are no longer a targeted prize track — ETHOnline 2026's 1inch track requires building on their Aqua/SwapVM contracts, which this project doesn't use. See each part's roadmap for the concrete per-track plan.
 
 ---
 
@@ -59,8 +59,8 @@ Multi-chain, mobile-native app, full x402 integration, ERC-4337/account abstract
 
 ## Technology Stack
 
-- **Web (`apps/web`)**: Next.js (App Router) + TypeScript, Tailwind, wagmi + viem, Framer Motion, Ledger Device Management Kit for co-signing.
-- **API (`apps/api`)**: NestJS + TypeScript, Prisma + PostgreSQL, viem for chain reads, SSE for realtime activity, cron-based indexer (no queue infra), SIWE-based session authentication guarding all write endpoints.
+- **Web (`apps/web`)**: Next.js (App Router) + TypeScript, Tailwind, wagmi + viem, Framer Motion, Ledger Device Management Kit for co-signing — the human-in-the-loop half of the Ledger track (owner approves a high-risk action on-device).
+- **API (`apps/api`)**: NestJS + TypeScript, Prisma + PostgreSQL, viem for chain reads, SSE for realtime activity, cron-based indexer (no queue infra), SIWE-based session authentication guarding all write endpoints. Riley's session key and the 1inch API key are stored as **Ledger Key Ring** ciphertext (`wallet-cli ring`, keys derived from the Ledger seed) and decrypted into the process env on the enrolled host at boot — never plaintext in deploy config. That's the secret-custody half of the Ledger track ("agents that use secrets they cannot leak"); the VPS enrollment itself is their "hosts with no USB port" priority area.
 - **Contracts (`packages/contracts`)**: Solidity via Foundry, OpenZeppelin, Chainlink AggregatorV3 feeds, ERC-8004 registry reads. Deployed on Base Sepolia (or a persistent Base-mainnet anvil fork if 1inch requires it).
 - **Monorepo**: pnpm workspaces (`apps/*`, `packages/*`), shared contract ABIs/types generated via `@wagmi/cli`'s Foundry plugin into `packages/contracts/ts`, consumed by both apps as `@handler/contracts`.
 

@@ -15,7 +15,7 @@
 | Components | Headless (HeadlessUI primitives) + custom skin | No template look; full design control; native Tailwind integration |
 | Animation | Framer Motion | Notification cards + approval moments need choreography |
 | Wallet | wagmi + viem | Wallet connection + **owner-signed txs** (hire, freeze, approve, deny) |
-| Ledger | Ledger DMK / device-signing kit via wagmi connector | The owner wallet — co-sign flow (partner track #1) |
+| Ledger | Ledger DMK / device-signing kit via wagmi connector | The owner wallet — co-sign flow. This is the human-in-the-loop half of the Ledger track's judging criteria; the other half (Riley's secrets kept as Ledger Key Ring ciphertext on the host) lives in the API — see backend roadmap §4.2. Ledger also scores Developer Experience feedback, so note DMK/clear-signing friction as you build the approval sheet |
 | Data | TanStack Query against **backend REST + SSE** (see backend roadmap) | Backend indexes & decodes chain once; no client log-polling |
 | State | Zustand (one store: UI state — sign-in gate, toasts, filters) | Light, predictable; server data lives in TanStack Query, never duplicated into a mock store |
 | Charts | None | Cut — numbers and badges tell the story faster |
