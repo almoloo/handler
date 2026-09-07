@@ -7,6 +7,7 @@ import { HealthModule } from './health/health.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { IndexerModule } from './indexer/indexer.module.js';
 import { TrustModule } from './trust/trust.module.js';
+import { ActivityModule } from './activity/activity.module.js';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { TrustModule } from './trust/trust.module.js';
     HealthModule,
     IndexerModule,
     TrustModule,
+    ActivityModule,
   ],
 })
 export class AppModule {}

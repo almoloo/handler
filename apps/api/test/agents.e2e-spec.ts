@@ -36,6 +36,11 @@ describe('Agents (e2e)', () => {
   const CHAIN_ID = 31337;
 
   const createdWalletAddresses: string[] = [];
+  // Scopes Session/SiweNonce cleanup to addresses *this file* created — a
+  // blanket `contains: '0x'` delete would race with other e2e spec files
+  // running concurrently against the same Postgres instance and could wipe
+  // out a session another file's test is still using mid-run.
+  const createdOwnerAddresses: string[] = [];
 
   beforeAll(async () => {
     process.env.SESSION_SECRET ??= 'e'.repeat(32);
@@ -62,13 +67,18 @@ describe('Agents (e2e)', () => {
     await prisma.wallet.deleteMany({
       where: { address: { in: createdWalletAddresses } },
     });
-    await prisma.session.deleteMany({ where: { address: { contains: '0x' } } });
-    await prisma.siweNonce.deleteMany({ where: { address: { contains: '0x' } } });
+    await prisma.session.deleteMany({
+      where: { address: { in: createdOwnerAddresses } },
+    });
+    await prisma.siweNonce.deleteMany({
+      where: { address: { in: createdOwnerAddresses } },
+    });
     await app.close();
   });
 
   async function signIn() {
     const account = privateKeyToAccount(generatePrivateKey());
+    createdOwnerAddresses.push(account.address.toLowerCase());
     const { body: nonceBody } = await request(app.getHttpServer())
       .post('/auth/nonce')
       .send({ address: account.address })

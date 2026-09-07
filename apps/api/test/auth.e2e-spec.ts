@@ -24,6 +24,12 @@ describe('Auth (e2e)', () => {
   const URI = 'http://localhost';
   const CHAIN_ID = 31337;
 
+  // Scopes Session/SiweNonce cleanup to addresses *this file* created — a
+  // blanket `contains: '0x'` delete would race with other e2e spec files
+  // running concurrently against the same Postgres instance and could wipe
+  // out a session another file's test is still using mid-run.
+  const createdOwnerAddresses: string[] = [];
+
   beforeAll(async () => {
     process.env.SESSION_SECRET ??= 'e'.repeat(32);
     process.env.SIWE_DOMAIN ??= DOMAIN;
@@ -44,13 +50,18 @@ describe('Auth (e2e)', () => {
     // Cleans up rows this spec created so repeated runs stay idempotent — matches
     // context/coding-standards.md's rule against test data leaking into shared state.
     // Must run before app.close(), which disconnects the Prisma client.
-    await prisma.session.deleteMany({ where: { address: { contains: '0x' } } });
-    await prisma.siweNonce.deleteMany({ where: { address: { contains: '0x' } } });
+    await prisma.session.deleteMany({
+      where: { address: { in: createdOwnerAddresses } },
+    });
+    await prisma.siweNonce.deleteMany({
+      where: { address: { in: createdOwnerAddresses } },
+    });
     await app.close();
   });
 
   async function signIn() {
     const account = privateKeyToAccount(generatePrivateKey());
+    createdOwnerAddresses.push(account.address.toLowerCase());
     const { body: nonceBody } = await request(app.getHttpServer())
       .post('/auth/nonce')
       .send({ address: account.address })
@@ -109,6 +120,7 @@ describe('Auth (e2e)', () => {
 
   it('rejects a verify with a stale/reused nonce', async () => {
     const account = privateKeyToAccount(generatePrivateKey());
+    createdOwnerAddresses.push(account.address.toLowerCase());
     const { body: nonceBody } = await request(app.getHttpServer())
       .post('/auth/nonce')
       .send({ address: account.address })
