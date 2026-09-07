@@ -2,7 +2,7 @@
 
 **Event:** ETHOnline 2026 (Sept 4–16, async) · **Submission:** Sun Sept 13, 12:00 pm EDT
 **Positioning:** The banking app for your AI — hire agents like employees, give them a card with rules, get a buzz when something's off.
-**Primary deliverable:** a responsive web app — first-class on mobile (the phone is the co-star of the demo video) and equally usable on desktop — whose screens carry the 3-minute demo video. Every frontend decision is judged by one question: *does this make the video better?*
+**Primary deliverable:** a responsive web app — first-class on mobile (the phone is the co-star of the demo video) and equally usable on desktop — that works end-to-end for anyone who connects their own wallet. The 3-minute video is recorded on the real app, against real data. Every frontend decision is judged by two questions, in order: *does this work for a real user?* and then *does this make the video better?* Nothing is built for the second question at the expense of the first.
 
 ---
 
@@ -17,11 +17,11 @@
 | Wallet | wagmi + viem | Wallet connection + **owner-signed txs** (hire, freeze, approve, deny) |
 | Ledger | Ledger DMK / device-signing kit via wagmi connector | The owner wallet — co-sign flow (partner track #1) |
 | Data | TanStack Query against **backend REST + SSE** (see backend roadmap) | Backend indexes & decodes chain once; no client log-polling |
-| State | Zustand (one store: agents, policies, activity, demo script) | Light, predictable, easy to drive demo mode |
+| State | Zustand (one store: UI state — sign-in gate, toasts, filters) | Light, predictable; server data lives in TanStack Query, never duplicated into a mock store |
 | Charts | None | Cut — numbers and badges tell the story faster |
 | Deploy | Vercel, responsive web (mobile + desktop) | Phone is the co-star of the video; desktop must hold up for judges reviewing on a laptop |
 
-Repo conventions: `/app` routes, `/components/ui` (skinned primitives), `/components/domain` (AgentCard, TrustBadge, ActivityItem, ApprovalSheet), `/lib/contracts` (typed ABIs via wagmi codegen), `/lib/demo` (scripted demo engine — first-class code, not an afterthought).
+Repo conventions: `/app` routes, `/components/ui` (skinned primitives), `/components/domain` (AgentCard, TrustBadge, ActivityItem, ApprovalSheet), `/lib/contracts` (typed ABIs via wagmi codegen), `/lib/demo` (the `/demo` director's API client — isolated, env-gated, never imported by product screens).
 
 ---
 
@@ -65,7 +65,7 @@ Navigation: two-tab bar (Payroll · Activity) + a floating "Hire agent" action. 
 - Empty state: "No agents on payroll yet. Hire your first." → /hire. (Empty states get real copy — the showcase screenshots may include them.)
 
 ### 4.2 Hire flow (onboarding) — *the "15 seconds to safety" demo beat*
-1. **Pick agent** — list with trust badges pre-fetched from the ERC-8004 read layer (seeded data); scanning a "new" agent shows the tighter default policy it will get.
+1. **Pick agent** — list from `GET /agents/catalog` with live trust badges computed by the backend from the ERC-8004 registries; scanning a "new" agent shows the tighter default policy it will get.
 2. **Set allowance** — the slider ($/day) with live USD framing ("Riley can spend up to $50/day"). Per-tx cap auto-derived, editable via one "advanced" disclosure.
 3. **Set permissions** — three toggles max: Swaps ✓ · Unknown contracts ✗ · Pay other agents: *verified only* (default). Confirm → contract call → success screen with confetti-free restraint (a single check-draw animation).
 
@@ -92,22 +92,22 @@ Navigation: two-tab bar (Payroll · Activity) + a floating "Hire agent" action. 
 - **Sign-in:** connecting a wallet (wagmi) is not itself a session. Entering `/app` triggers SIWE: `POST /auth/nonce` for the connected address → owner signs the SIWE message in their wallet (a single, familiar signature prompt, no gas) → `POST /auth/verify` → backend sets a session cookie. `TanStack Query` calls carry the cookie; a 401 anywhere in `/app` bounces back to a lightweight "sign in to continue" screen, not the landing page. Disconnecting the wallet or switching accounts clears the session (`POST /auth/logout`) and re-prompts. This is a one-time-per-session gate, not a per-action step — it does not replace the owner-signed contract txs below.
 - **Reads:** all feed/list data (agents, activity, pending approvals, trust tiers, prices) comes from the **backend REST + SSE** — the backend indexes and decodes chain events once (see backend roadmap §4.1). The only direct chain reads client-side are the connected owner wallet's balance/network via wagmi.
 - **Writes (all owner-signed, client-side via wagmi — the backend never holds the owner key):** create wallet (factory), hire agent, update allowance, freeze, approve pending tx (Ledger path), deny. After a write lands, the backend indexer picks it up within one tick; optional `POST /approvals/:id/approved|denied` callbacks give the UI instant feedback ahead of indexing.
-- **Trust layer:** trust tiers arrive pre-computed from the backend (`GET /agents`); the frontend renders badges only. The seeded-fixture logic lives server-side (backend roadmap §4.3), not in the client.
+- **Trust layer:** trust tiers arrive pre-computed from the backend (`GET /agents`, `GET /agents/catalog`); the frontend renders badges only. There is no client-side fixture or fallback tier (backend roadmap §4.3).
 - **Prices:** USD framing on caps ("$50/day ≈ 0.011 ETH today") from backend `GET /prices` (Chainlink-fed, cached) — one price source across UI, backend, and what the contracts enforce.
 - **1inch:** the agent's swaps are backend/script-side, but the frontend renders the swap receipts in activity with route metadata ("via 1inch") — visible integration again.
 
 ---
 
-## 6. Demo Engine (treat as a feature, not a hack)
+## 6. Demo Director (operator tooling — isolated, never product)
 
-`/demo` director screen (phone #2 or laptop) with buttons that trigger the scripted beats:
+`/demo` director screen (phone #2 or laptop). It renders only when `NEXT_PUBLIC_DEMO_ENABLED=true` and the signed-in wallet owns the showcase wallet (otherwise 404); its buttons call `POST /demo/beat/:n` on the backend, which triggers the *real* agents against the showcase wallet through the same code paths any wallet uses:
 1. **"Start workday"** — good agent begins rebalancing (real testnet txs, pre-funded).
 2. **"Hire subcontractor"** — good agent pays a verified agent (machine-to-machine beat).
 3. **"Send the villain"** — zero-reputation agent attempts the $500 charge → wallet's `tryExecute()` blocks it and emits `ExecutionBlocked` on-chain (a real, explorer-visible tx — see contracts roadmap §2.1) → calm slate blocked card on the hero phone — the villain beat lands on the policy visibly working, not a color spike.
 4. **"Retry over threshold"** — verified agent requests above co-sign cap → pending card → approval sheet → Ledger.
 Plus **Reset** — restores balances/state for retakes (video will need 5+ takes; one tap, < 30s). Beats 1–4 map to backend `POST /demo/beat/:n`; Reset maps to `POST /demo/reset`.
 
-Rule: every beat produces a *real* on-chain transaction. The script controls timing, never fakes results.
+Rule: every beat produces a *real* on-chain transaction through the real policy/trust/price checks. The director controls timing, never results. Product screens never import from `/lib/demo`, and no product component has a "demo mode" branch.
 
 ---
 
@@ -116,9 +116,9 @@ Rule: every beat produces a *real* on-chain transaction. The script controls tim
 | Day | Frontend goal | Exit criterion |
 |---|---|---|
 | 1 | Scaffold, tokens, wagmi config, UI primitives skinned | App shell deployed to Vercel |
-| 2 | Payroll screen with mock store; TrustBadge + ActivityItem components | Home looks screenshot-worthy on mock data |
+| 2 | Payroll screen against the `GET /agents` response types (typed client, real empty state); TrustBadge + ActivityItem components | Home renders the real empty state and, once the endpoint lands, real rows — no mock store in app code |
 | 3 | Hire flow against the contracts lane's **dev deployment** (direct `hireAgent` on the pre-created dev wallet; factory/CREATE2 arrives day 5); SIWE sign-in gate on `/app` against the backend's day-3 `auth` module | Can employ an agent for real; `/app` requires a signed-in wallet, session survives a refresh |
-| 4 | Activity feed + notification cards on **backend REST + SSE** (mocks off) | Live txs appear as cards unaided |
+| 4 | Activity feed + notification cards on **backend REST + SSE** | Live txs appear as cards unaided, for any signed-in wallet |
 | 5 | Agent file + freeze + policy sentences; USD framing via `GET /prices`; switch hire flow to the factory | Policy round-trips on-chain |
 | 6 | Approval sheet + Ledger co-sign path | Full pending→approve/deny loop works |
 | 7 | Demo engine + villain beat + reset; **feature freeze at EOD** | Beats 1–4 + reset run back-to-back clean |
@@ -134,11 +134,11 @@ Shared risk rule: any day-4+ slip eats polish, never the demo engine. If forced 
 - [ ] Every screen tested at 390×844 (iPhone, the recording resolution) **and** at a desktop width (≥1280px) — no horizontal scroll, no orphaned mobile-only spacing at either end
 - [ ] No hex addresses, no jargon, no dev artifacts visible anywhere on the demo path
 - [ ] Blocked actions render calm slate, never red; red appears only for a genuine failure (if it appears at all in the demo) — the villain beat lands on the deliberate calm, not a color spike
-- [ ] Loading states never appear during demo beats (pre-warm + optimistic UI on approve/deny)
+- [ ] Loading states are real, designed, and fast (skeletons + optimistic UI on approve/deny) — never hidden by pre-warming tricks that a real user wouldn't get
 - [ ] Reset → full clean state in one tap, < 30 seconds
 - [ ] Screenshots exported for the showcase page: Payroll, Hire step 2, slate block card, approval sheet (Ledger)
 - [ ] Reduced-motion respected; focus states visible (judges sometimes open the live app — it should survive a keyboard)
-- [ ] Live deployment link works for a fresh visitor via one SIWE sign-in into a "Try the demo" seeded wallet
+- [ ] Live deployment link works for a fresh visitor with their own wallet: sign in → create wallet → hire an agent → see a real activity row, with no special-casing; the showcase wallet is an ordinary wallet that happens to be pre-funded
 
 ---
 
