@@ -48,6 +48,10 @@ export class AuthService {
       throw new UnauthorizedException('Malformed SIWE message');
     }
 
+    if (siwe.chainId !== this.env.SIWE_CHAIN_ID) {
+      throw new UnauthorizedException('Wrong chain');
+    }
+
     const address = siwe.address.toLowerCase();
     // Atomically claim the nonce (single UPDATE guarded by consumedAt/expiresAt) so two
     // concurrent verify() calls for the same nonce can't both pass and each start a session.
@@ -65,7 +69,7 @@ export class AuthService {
     }
 
     const result = await siwe.verify(
-      { signature, nonce: siwe.nonce },
+      { signature, nonce: siwe.nonce, domain: this.env.SIWE_DOMAIN },
       { suppressExceptions: true },
     );
     if (!result.success) {

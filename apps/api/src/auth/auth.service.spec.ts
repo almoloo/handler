@@ -39,6 +39,8 @@ const CHAIN_ID = 31337;
 
 beforeEach(() => {
   process.env.SESSION_SECRET = 'a'.repeat(32);
+  process.env.SIWE_DOMAIN = DOMAIN;
+  process.env.SIWE_CHAIN_ID = String(CHAIN_ID);
 });
 
 describe('AuthService.issueNonce', () => {
@@ -135,6 +137,57 @@ describe('AuthService.verify', () => {
     await expect(service.verify(message, signature)).rejects.toThrow(
       /Invalid or expired nonce/,
     );
+  });
+
+  it('rejects a message signed for a different domain', async () => {
+    const prisma = makePrisma();
+    const service = new AuthService(prisma as unknown as PrismaService);
+    const nonce = generateNonce();
+    const account = privateKeyToAccount(generatePrivateKey());
+    const siwe = new SiweMessage({
+      domain: 'evil.example',
+      address: account.address,
+      statement: 'Sign in to Handler.',
+      uri: URI,
+      version: '1',
+      chainId: CHAIN_ID,
+      nonce,
+      issuedAt: new Date().toISOString(),
+    });
+    const message = siwe.prepareMessage();
+    const signature = await account.signMessage({ message });
+    prisma.siweNonce.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.verify(message, signature)).rejects.toThrow(
+      /Invalid SIWE signature/,
+    );
+  });
+
+  it('rejects a message signed for a different chain', async () => {
+    const prisma = makePrisma();
+    const service = new AuthService(prisma as unknown as PrismaService);
+    const nonce = generateNonce();
+    const account = privateKeyToAccount(generatePrivateKey());
+    const siwe = new SiweMessage({
+      domain: DOMAIN,
+      address: account.address,
+      statement: 'Sign in to Handler.',
+      uri: URI,
+      version: '1',
+      chainId: CHAIN_ID + 1,
+      nonce,
+      issuedAt: new Date().toISOString(),
+    });
+    const message = siwe.prepareMessage();
+    const signature = await account.signMessage({ message });
+    prisma.siweNonce.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.verify(message, signature)).rejects.toThrow(
+      /Wrong chain/,
+    );
+    // Rejected before the nonce is ever claimed, so a wrong-chain replay can't burn
+    // a legitimate nonce.
+    expect(prisma.siweNonce.updateMany).not.toHaveBeenCalled();
   });
 
   it('rejects a tampered signature', async () => {
