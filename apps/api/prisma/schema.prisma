@@ -418,3 +418,26 @@ model DemoSnapshot {
 
   @@index([active, takenAt(sort: Desc)])
 }
+
+// ───────────────────────────── Auth ─────────────────────────────
+
+/// One-time SIWE nonce for one address. Consumed by /auth/verify; expired/consumed nonces are rejected.
+model SiweNonce {
+  nonce      String    @id
+  address    String    @db.VarChar(42)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([address])
+}
+
+/// A signed-in owner session, referenced by the `handler_session` cookie. One session per login.
+model Session {
+  id        String   @id @default(cuid())
+  address   String   @db.VarChar(42)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([address])
+}
