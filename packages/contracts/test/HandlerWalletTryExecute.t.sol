@@ -183,12 +183,14 @@ contract HandlerWalletTryExecuteTest is Test {
 
         vm.prank(sessionKey);
         vm.expectRevert(HandlerWallet.TargetIsSessionKey.selector);
-        wallet.tryExecute(HandlerWallet.Call({target: sessionKey, data: "", value: 0}));
+        bool reverted = wallet.tryExecute(HandlerWallet.Call({target: sessionKey, data: "", value: 0}));
+        reverted; // unreachable — the call above reverts; silences the unused-return lint note
     }
 
     function test_TryExecute_RevertsIfCallerNotHired() public {
         vm.prank(sessionKey);
         vm.expectRevert(HandlerWallet.AgentNotHired.selector);
-        wallet.tryExecute(HandlerWallet.Call({target: recipient, data: "", value: 0}));
+        bool reverted = wallet.tryExecute(HandlerWallet.Call({target: recipient, data: "", value: 0}));
+        reverted; // unreachable — the call above reverts; silences the unused-return lint note
     }
 }

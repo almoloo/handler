@@ -25,6 +25,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       BASE_RPC_URL: ${BASE_RPC_URL}
+      CHAIN_RPC_URL: ${CHAIN_RPC_URL}
       CHAIN_ID: ${CHAIN_ID}
       DEMO_TOKEN: ${DEMO_TOKEN}
       ONEINCH_API_KEY: ${ONEINCH_API_KEY}

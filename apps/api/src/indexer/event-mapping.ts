@@ -33,19 +33,19 @@ export interface ChainPolicy {
 }
 
 /** The public `policies(sessionKey)` getter returns 9 separate positional outputs, not a tuple object. */
-export function policyFromContractTuple(
-  tuple: readonly [
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    bigint,
-    number,
-    boolean,
-    boolean,
-    boolean,
-  ],
-): ChainPolicy {
+export type PolicyTuple = readonly [
+  bigint,
+  bigint,
+  bigint,
+  bigint,
+  bigint,
+  number,
+  boolean,
+  boolean,
+  boolean,
+];
+
+export function policyFromContractTuple(tuple: PolicyTuple): ChainPolicy {
   const [
     dailyCapUsd,
     perTxCapUsd,

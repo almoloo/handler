@@ -24,6 +24,7 @@ import {
   paymentSummary,
   pendingSummary,
   pendingSwapSummary,
+  type PolicyTuple,
   policyFromContractTuple,
   policyUpdatedSummary,
   swapSummary,
@@ -113,8 +114,18 @@ export class IndexerService {
     // actually written — the next tick safely reprocesses the same range.
     await this.prisma.$transaction(async (tx) => {
       const blockTimestamps = new Map<bigint, Date>();
+      // approve() emits Approved then Executed in the same tx (contracts-roadmap §2.1) —
+      // tracks which txs already got their one feed row from the Approved handler so the
+      // Executed handler for the same tx doesn't write a second, duplicate row.
+      const resolvedApprovalTxHashes = new Set<string>();
       for (const log of decoded) {
-        await this.handleLog(tx, log, address, blockTimestamps);
+        await this.handleLog(
+          tx,
+          log,
+          address,
+          blockTimestamps,
+          resolvedApprovalTxHashes,
+        );
       }
       await tx.indexerCursor.update({
         where: { key },
@@ -162,7 +173,7 @@ export class IndexerService {
     walletAddress: string,
     sessionKey: string,
     agentId: string,
-    extra: { frozenAt?: Date } = {},
+    extra: { frozenAt?: Date | null } = {},
   ) {
     const raw = await this.chain.publicClient.readContract({
       address: this.chain.handlerWalletAddress,
@@ -171,19 +182,7 @@ export class IndexerService {
       args: [sessionKey as Address],
     });
     const fields = toPolicyMirrorFields(
-      policyFromContractTuple(
-        raw as readonly [
-          bigint,
-          bigint,
-          bigint,
-          bigint,
-          bigint,
-          number,
-          boolean,
-          boolean,
-          boolean,
-        ],
-      ),
+      policyFromContractTuple(raw as PolicyTuple),
     );
 
     return db.policy.upsert({
@@ -223,345 +222,495 @@ export class IndexerService {
     return policy?.id ?? null;
   }
 
+  /** Shared by the three events that ensure the session-key Agent exists and refresh its
+   * on-chain Policy mirror (AgentHired, PolicyUpdated, AgentFrozen). */
+  private async loadHiredAgentAndPolicy(
+    db: Db,
+    walletAddress: string,
+    sessionKey: string,
+    extra: { frozenAt?: Date | null } = {},
+  ) {
+    const agent = await this.getOrCreateHiredAgent(db, sessionKey);
+    const policy = await this.upsertPolicyMirror(
+      db,
+      walletAddress,
+      sessionKey,
+      agent.id,
+      extra,
+    );
+    return { agent, policy };
+  }
+
+  /** Shared by the events that only need the Agent row and an existing Policy's id, not a
+   * fresh chain read of the policy mirror (Executed, ExecutionBlocked, Proposed). */
+  private async loadAgentAndPolicyId(
+    db: Db,
+    walletAddress: string,
+    sessionKey: string,
+  ) {
+    const agent = await this.getOrCreateHiredAgent(db, sessionKey);
+    const policyId = await this.findPolicyId(db, walletAddress, sessionKey);
+    return { agent, policyId };
+  }
+
   private async handleLog(
     db: Db,
     log: DecodedLog,
     walletAddress: string,
     blockTimestamps: Map<bigint, Date>,
+    resolvedApprovalTxHashes: Set<string> = new Set(),
   ) {
     switch (log.eventName) {
-      case 'AgentHired': {
-        const sessionKey = log.args.sessionKey.toLowerCase();
-        const agent = await this.getOrCreateHiredAgent(db, sessionKey);
-        const policy = await this.upsertPolicyMirror(
+      case 'AgentHired':
+        return this.handleAgentHired(db, log, walletAddress, blockTimestamps);
+      case 'PolicyUpdated':
+        return this.handlePolicyUpdated(
           db,
+          log,
           walletAddress,
-          sessionKey,
-          agent.id,
-        );
-        const blockTimestamp = await this.getBlockTimestamp(
-          log.blockNumber,
           blockTimestamps,
         );
-        await this.upsertActivityEvent(db, {
-          walletAddress,
-          policyId: policy.id,
-          agentId: agent.id,
-          type: ActivityType.HIRED,
-          source: ActivitySource.CHAIN,
-          txHash: log.transactionHash,
-          logIndex: log.logIndex,
-          blockNumber: log.blockNumber,
-          blockTimestamp,
-          summary: hiredSummary(agent.name),
-        });
-        return;
-      }
-      case 'PolicyUpdated': {
-        const sessionKey = log.args.sessionKey.toLowerCase();
-        const agent = await this.getOrCreateHiredAgent(db, sessionKey);
-        const policy = await this.upsertPolicyMirror(
+      case 'AgentFrozen':
+        return this.handleAgentFrozen(db, log, walletAddress, blockTimestamps);
+      case 'Executed':
+        return this.handleExecuted(
           db,
+          log,
           walletAddress,
-          sessionKey,
-          agent.id,
-        );
-        const blockTimestamp = await this.getBlockTimestamp(
-          log.blockNumber,
           blockTimestamps,
+          resolvedApprovalTxHashes,
         );
-        await this.upsertActivityEvent(db, {
-          walletAddress,
-          policyId: policy.id,
-          agentId: agent.id,
-          type: ActivityType.POLICY_UPDATED,
-          source: ActivitySource.CHAIN,
-          txHash: log.transactionHash,
-          logIndex: log.logIndex,
-          blockNumber: log.blockNumber,
-          blockTimestamp,
-          summary: policyUpdatedSummary(agent.name),
-        });
-        return;
-      }
-      case 'AgentFrozen': {
-        const sessionKey = log.args.sessionKey.toLowerCase();
-        const frozen = log.args.frozen;
-        const agent = await this.getOrCreateHiredAgent(db, sessionKey);
-        const blockTimestamp = await this.getBlockTimestamp(
-          log.blockNumber,
-          blockTimestamps,
-        );
-        const policy = await this.upsertPolicyMirror(
+      case 'ExecutionBlocked':
+        return this.handleExecutionBlocked(
           db,
+          log,
           walletAddress,
-          sessionKey,
-          agent.id,
-          frozen ? { frozenAt: blockTimestamp } : {},
-        );
-        await this.upsertActivityEvent(db, {
-          walletAddress,
-          policyId: policy.id,
-          agentId: agent.id,
-          type: frozen ? ActivityType.FROZEN : ActivityType.UNFROZEN,
-          source: ActivitySource.CHAIN,
-          txHash: log.transactionHash,
-          logIndex: log.logIndex,
-          blockNumber: log.blockNumber,
-          blockTimestamp,
-          summary: frozenSummary(agent.name, frozen),
-        });
-        return;
-      }
-      case 'Executed': {
-        const sessionKey = log.args.sessionKey.toLowerCase();
-        const target = log.args.target.toLowerCase();
-        const usdValue = log.args.usdValue;
-        const agent = await this.getOrCreateHiredAgent(db, sessionKey);
-        const policyId = await this.findPolicyId(db, walletAddress, sessionKey);
-        const blockTimestamp = await this.getBlockTimestamp(
-          log.blockNumber,
           blockTimestamps,
         );
-
-        let type: ActivityType;
-        let counterpartyAgentId: string | null = null;
-        let summary: string;
-        if (isSwapKind(log.args.kind)) {
-          type = ActivityType.SWAP;
-          summary = swapSummary(agent.name, usdValue);
-        } else {
-          const { agent: counterparty, type: transferType } =
-            await this.resolveTransferCounterparty(db, target);
-          type = transferType;
-          counterpartyAgentId = counterparty.id;
-          summary =
-            transferType === ActivityType.AGENT_PAYMENT
-              ? paymentSummary(agent.name, counterparty.name, usdValue)
-              : transferSummary(agent.name, counterparty.name, usdValue);
-        }
-
-        await this.upsertActivityEvent(db, {
-          walletAddress,
-          policyId,
-          agentId: agent.id,
-          counterpartyAgentId,
-          type,
-          source: ActivitySource.CHAIN,
-          amountUsd: usdValue,
-          target,
-          counterpartyAddress: target,
-          txHash: log.transactionHash,
-          logIndex: log.logIndex,
-          blockNumber: log.blockNumber,
-          blockTimestamp,
-          summary,
-        });
-        return;
-      }
-      case 'ExecutionBlocked': {
-        const sessionKey = log.args.sessionKey.toLowerCase();
-        const usdValue = log.args.usdValue;
-        const blockReason = mapBlockReason(log.args.reason);
-        const agent = await this.getOrCreateHiredAgent(db, sessionKey);
-        const policyId = await this.findPolicyId(db, walletAddress, sessionKey);
-        const blockTimestamp = await this.getBlockTimestamp(
-          log.blockNumber,
-          blockTimestamps,
-        );
-
-        await this.upsertActivityEvent(db, {
-          walletAddress,
-          policyId,
-          agentId: agent.id,
-          type: ActivityType.BLOCKED,
-          source: ActivitySource.CHAIN,
-          blockReason,
-          amountUsd: usdValue,
-          txHash: log.transactionHash,
-          logIndex: log.logIndex,
-          blockNumber: log.blockNumber,
-          blockTimestamp,
-          summary: blockedSummary(agent.name, blockReason),
-        });
-        return;
-      }
-      case 'Proposed': {
-        const id = log.args.id;
-        const sessionKey = log.args.sessionKey.toLowerCase();
-        const target = log.args.target.toLowerCase();
-        const usdValue = log.args.usdValue;
-        const valueWei = log.args.value;
-
-        const agent = await this.getOrCreateHiredAgent(db, sessionKey);
-        const policyId = await this.findPolicyId(db, walletAddress, sessionKey);
-        if (!policyId) {
-          this.logger.warn(
-            `Proposed ${id} for ${sessionKey} with no Policy mirror yet — skipping`,
-          );
-          return;
-        }
-        const blockTimestamp = await this.getBlockTimestamp(
-          log.blockNumber,
-          blockTimestamps,
-        );
-
-        // The Proposed event doesn't carry calldata or the call's kind — read the stored
-        // struct through, and check knownRouters the same way _evaluate() classifies
-        // Executed, so a proposed swap isn't mislabeled as a payment to the router.
-        const raw = await this.chain.publicClient.readContract({
-          address: this.chain.handlerWalletAddress,
-          abi: this.chain.handlerWalletAbi,
-          functionName: 'pendingApprovals',
-          args: [id],
-        });
-        const [, , calldata] = raw as readonly [
-          string,
-          string,
-          `0x${string}`,
-          bigint,
-          bigint,
-          boolean,
-        ];
-        const isKnownRouter = await this.chain.publicClient.readContract({
-          address: this.chain.handlerWalletAddress,
-          abi: this.chain.handlerWalletAbi,
-          functionName: 'knownRouters',
-          args: [target as Address],
-        });
-        const isSwap = calldata !== '0x' && Boolean(isKnownRouter);
-
-        let counterpartyAgentId: string | null = null;
-        let summary: string;
-        if (isSwap) {
-          summary = pendingSwapSummary(agent.name, usdValue);
-        } else {
-          const { agent: counterparty } = await this.resolveTransferCounterparty(
-            db,
-            target,
-          );
-          counterpartyAgentId = counterparty.id;
-          summary = pendingSummary(agent.name, counterparty.name, usdValue);
-        }
-
-        await db.pendingApproval.upsert({
-          where: { id },
-          create: {
-            id,
-            walletAddress,
-            policyId,
-            agentId: agent.id,
-            counterpartyAgentId,
-            amountUsd: usdValue,
-            target,
-            valueRaw: valueWei.toString(),
-            calldata,
-            decoded: { target, valueRaw: valueWei.toString() },
-            summary,
-            status: ApprovalStatus.PENDING,
-            proposedTxHash: log.transactionHash,
-            proposedBlock: log.blockNumber,
-            proposedAt: blockTimestamp,
-          },
-          update: {},
-        });
-        await this.upsertActivityEvent(db, {
-          walletAddress,
-          policyId,
-          agentId: agent.id,
-          counterpartyAgentId,
-          type: ActivityType.PENDING,
-          source: ActivitySource.CHAIN,
-          amountUsd: usdValue,
-          target,
-          counterpartyAddress: target,
-          pendingApprovalId: id,
-          txHash: log.transactionHash,
-          logIndex: log.logIndex,
-          blockNumber: log.blockNumber,
-          blockTimestamp,
-          summary,
-        });
-        return;
-      }
+      case 'Proposed':
+        return this.handleProposed(db, log, walletAddress, blockTimestamps);
       case 'Approved':
-      case 'Denied': {
-        const id = log.args.id;
-        const approval = await db.pendingApproval.findUnique({
-          where: { id },
-        });
-        if (!approval) {
-          this.logger.warn(
-            `${log.eventName} ${id} has no PendingApproval row — skipping`,
-          );
-          return;
-        }
-
-        const approved = log.eventName === 'Approved';
-        const blockTimestamp = await this.getBlockTimestamp(
-          log.blockNumber,
-          blockTimestamps,
-        );
-        const counterparty = approval.counterpartyAgentId
-          ? await db.agent.findUnique({
-              where: { id: approval.counterpartyAgentId },
-            })
-          : null;
-        const agent = await db.agent.findUnique({
-          where: { id: approval.agentId },
-        });
-        const agentName = agent?.name ?? truncateAddress(approval.target);
-        const counterpartyName =
-          counterparty?.name ?? truncateAddress(approval.target);
-
-        await db.pendingApproval.update({
-          where: { id },
-          data: {
-            status: approved ? ApprovalStatus.APPROVED : ApprovalStatus.DENIED,
-            resolvedTxHash: log.transactionHash,
-            resolvedAt: blockTimestamp,
-            resolutionSource: ResolutionSource.CHAIN,
-          },
-        });
-
-        if (approved) {
-          const policy = await db.policy.findUnique({
-            where: { id: approval.policyId },
-          });
-          if (policy) {
-            await this.upsertPolicyMirror(
-              db,
-              walletAddress,
-              policy.sessionKey,
-              approval.agentId,
-            );
-          }
-        }
-
-        await this.upsertActivityEvent(db, {
+      case 'Denied':
+        return this.handleApprovedOrDenied(
+          db,
+          log,
           walletAddress,
-          policyId: approval.policyId,
-          agentId: approval.agentId,
-          counterpartyAgentId: approval.counterpartyAgentId,
-          type: approved ? ActivityType.APPROVED : ActivityType.DENIED,
-          source: ActivitySource.CHAIN,
-          amountUsd: approval.amountUsd,
-          target: approval.target,
-          counterpartyAddress: approval.target,
-          pendingApprovalId: id,
-          txHash: log.transactionHash,
-          logIndex: log.logIndex,
-          blockNumber: log.blockNumber,
-          blockTimestamp,
-          summary: approved
-            ? approvedSummary(agentName, counterpartyName, approval.amountUsd)
-            : deniedSummary(agentName, counterpartyName, approval.amountUsd),
-        });
-        return;
-      }
+          blockTimestamps,
+          resolvedApprovalTxHashes,
+        );
       default:
         return;
     }
+  }
+
+  private async handleAgentHired(
+    db: Db,
+    log: Extract<DecodedLog, { eventName: 'AgentHired' }>,
+    walletAddress: string,
+    blockTimestamps: Map<bigint, Date>,
+  ) {
+    const sessionKey = log.args.sessionKey.toLowerCase();
+    const { agent, policy } = await this.loadHiredAgentAndPolicy(
+      db,
+      walletAddress,
+      sessionKey,
+    );
+    const blockTimestamp = await this.getBlockTimestamp(
+      log.blockNumber,
+      blockTimestamps,
+    );
+    await this.upsertActivityEvent(db, {
+      walletAddress,
+      policyId: policy.id,
+      agentId: agent.id,
+      type: ActivityType.HIRED,
+      source: ActivitySource.CHAIN,
+      txHash: log.transactionHash,
+      logIndex: log.logIndex,
+      blockNumber: log.blockNumber,
+      blockTimestamp,
+      summary: hiredSummary(agent.name),
+    });
+  }
+
+  private async handlePolicyUpdated(
+    db: Db,
+    log: Extract<DecodedLog, { eventName: 'PolicyUpdated' }>,
+    walletAddress: string,
+    blockTimestamps: Map<bigint, Date>,
+  ) {
+    const sessionKey = log.args.sessionKey.toLowerCase();
+    const { agent, policy } = await this.loadHiredAgentAndPolicy(
+      db,
+      walletAddress,
+      sessionKey,
+    );
+    const blockTimestamp = await this.getBlockTimestamp(
+      log.blockNumber,
+      blockTimestamps,
+    );
+    await this.upsertActivityEvent(db, {
+      walletAddress,
+      policyId: policy.id,
+      agentId: agent.id,
+      type: ActivityType.POLICY_UPDATED,
+      source: ActivitySource.CHAIN,
+      txHash: log.transactionHash,
+      logIndex: log.logIndex,
+      blockNumber: log.blockNumber,
+      blockTimestamp,
+      summary: policyUpdatedSummary(agent.name),
+    });
+  }
+
+  private async handleAgentFrozen(
+    db: Db,
+    log: Extract<DecodedLog, { eventName: 'AgentFrozen' }>,
+    walletAddress: string,
+    blockTimestamps: Map<bigint, Date>,
+  ) {
+    const sessionKey = log.args.sessionKey.toLowerCase();
+    const frozen = log.args.frozen;
+    const blockTimestamp = await this.getBlockTimestamp(
+      log.blockNumber,
+      blockTimestamps,
+    );
+    const { agent, policy } = await this.loadHiredAgentAndPolicy(
+      db,
+      walletAddress,
+      sessionKey,
+      // Unfreezing clears frozenAt rather than leaving the prior freeze's timestamp
+      // stale on a policy that's no longer frozen.
+      frozen ? { frozenAt: blockTimestamp } : { frozenAt: null },
+    );
+    await this.upsertActivityEvent(db, {
+      walletAddress,
+      policyId: policy.id,
+      agentId: agent.id,
+      type: frozen ? ActivityType.FROZEN : ActivityType.UNFROZEN,
+      source: ActivitySource.CHAIN,
+      txHash: log.transactionHash,
+      logIndex: log.logIndex,
+      blockNumber: log.blockNumber,
+      blockTimestamp,
+      summary: frozenSummary(agent.name, frozen),
+    });
+  }
+
+  private async handleExecuted(
+    db: Db,
+    log: Extract<DecodedLog, { eventName: 'Executed' }>,
+    walletAddress: string,
+    blockTimestamps: Map<bigint, Date>,
+    resolvedApprovalTxHashes: Set<string>,
+  ) {
+    if (resolvedApprovalTxHashes.has(log.transactionHash)) {
+      // approve() emits Approved + Executed in the same tx; the Approved handler
+      // already wrote this action's one feed row — skip so it isn't double-counted.
+      return;
+    }
+
+    const sessionKey = log.args.sessionKey.toLowerCase();
+    const target = log.args.target.toLowerCase();
+    const usdValue = log.args.usdValue;
+    const { agent, policyId } = await this.loadAgentAndPolicyId(
+      db,
+      walletAddress,
+      sessionKey,
+    );
+    const blockTimestamp = await this.getBlockTimestamp(
+      log.blockNumber,
+      blockTimestamps,
+    );
+
+    let type: ActivityType;
+    let counterpartyAgentId: string | null = null;
+    let summary: string;
+    if (isSwapKind(log.args.kind)) {
+      type = ActivityType.SWAP;
+      summary = swapSummary(agent.name, usdValue);
+    } else {
+      const { agent: counterparty, type: transferType } =
+        await this.resolveTransferCounterparty(db, target);
+      type = transferType;
+      counterpartyAgentId = counterparty.id;
+      summary =
+        transferType === ActivityType.AGENT_PAYMENT
+          ? paymentSummary(agent.name, counterparty.name, usdValue)
+          : transferSummary(agent.name, counterparty.name, usdValue);
+    }
+
+    await this.upsertActivityEvent(db, {
+      walletAddress,
+      policyId,
+      agentId: agent.id,
+      counterpartyAgentId,
+      type,
+      source: ActivitySource.CHAIN,
+      amountUsd: usdValue,
+      target,
+      counterpartyAddress: target,
+      txHash: log.transactionHash,
+      logIndex: log.logIndex,
+      blockNumber: log.blockNumber,
+      blockTimestamp,
+      summary,
+    });
+  }
+
+  private async handleExecutionBlocked(
+    db: Db,
+    log: Extract<DecodedLog, { eventName: 'ExecutionBlocked' }>,
+    walletAddress: string,
+    blockTimestamps: Map<bigint, Date>,
+  ) {
+    const sessionKey = log.args.sessionKey.toLowerCase();
+    const usdValue = log.args.usdValue;
+    const blockReason = mapBlockReason(log.args.reason);
+    const { agent, policyId } = await this.loadAgentAndPolicyId(
+      db,
+      walletAddress,
+      sessionKey,
+    );
+    const blockTimestamp = await this.getBlockTimestamp(
+      log.blockNumber,
+      blockTimestamps,
+    );
+
+    await this.upsertActivityEvent(db, {
+      walletAddress,
+      policyId,
+      agentId: agent.id,
+      type: ActivityType.BLOCKED,
+      source: ActivitySource.CHAIN,
+      blockReason,
+      amountUsd: usdValue,
+      txHash: log.transactionHash,
+      logIndex: log.logIndex,
+      blockNumber: log.blockNumber,
+      blockTimestamp,
+      summary: blockedSummary(agent.name, blockReason),
+    });
+  }
+
+  /** Reads the stored struct for a just-proposed call: its raw calldata (needed on the
+   * PendingApproval row regardless of kind) and its classification + summary. `kind` is
+   * classified once by `_evaluate()` at propose time and stored on the struct, so this
+   * mirrors it directly rather than re-deriving it from calldata + knownRouters (which the
+   * contract itself no longer does either, now that `approve()`'s Executed event uses the
+   * same stored kind). */
+  private async loadProposedCallDetails(
+    id: `0x${string}`,
+    target: string,
+    agentName: string,
+    usdValue: bigint,
+    db: Db,
+  ) {
+    const raw = await this.chain.publicClient.readContract({
+      address: this.chain.handlerWalletAddress,
+      abi: this.chain.handlerWalletAbi,
+      functionName: 'pendingApprovals',
+      args: [id],
+    });
+    const [, , calldata, , , , kind] = raw as readonly [
+      string,
+      string,
+      `0x${string}`,
+      bigint,
+      bigint,
+      boolean,
+      number,
+    ];
+
+    if (isSwapKind(kind)) {
+      return {
+        calldata,
+        counterpartyAgentId: null as string | null,
+        summary: pendingSwapSummary(agentName, usdValue),
+      };
+    }
+    const { agent: counterparty } = await this.resolveTransferCounterparty(
+      db,
+      target,
+    );
+    return {
+      calldata,
+      counterpartyAgentId: counterparty.id as string | null,
+      summary: pendingSummary(agentName, counterparty.name, usdValue),
+    };
+  }
+
+  private async handleProposed(
+    db: Db,
+    log: Extract<DecodedLog, { eventName: 'Proposed' }>,
+    walletAddress: string,
+    blockTimestamps: Map<bigint, Date>,
+  ) {
+    const id = log.args.id;
+    const sessionKey = log.args.sessionKey.toLowerCase();
+    const target = log.args.target.toLowerCase();
+    const usdValue = log.args.usdValue;
+    const valueWei = log.args.value;
+
+    const { agent, policyId } = await this.loadAgentAndPolicyId(
+      db,
+      walletAddress,
+      sessionKey,
+    );
+    if (!policyId) {
+      this.logger.warn(
+        `Proposed ${id} for ${sessionKey} with no Policy mirror yet — skipping`,
+      );
+      return;
+    }
+    const blockTimestamp = await this.getBlockTimestamp(
+      log.blockNumber,
+      blockTimestamps,
+    );
+
+    const { calldata, counterpartyAgentId, summary } =
+      await this.loadProposedCallDetails(id, target, agent.name, usdValue, db);
+
+    await db.pendingApproval.upsert({
+      where: { id },
+      create: {
+        id,
+        walletAddress,
+        policyId,
+        agentId: agent.id,
+        counterpartyAgentId,
+        amountUsd: usdValue,
+        target,
+        valueRaw: valueWei.toString(),
+        calldata,
+        decoded: { target, valueRaw: valueWei.toString() },
+        summary,
+        status: ApprovalStatus.PENDING,
+        proposedTxHash: log.transactionHash,
+        proposedBlock: log.blockNumber,
+        proposedAt: blockTimestamp,
+      },
+      update: {},
+    });
+    await this.upsertActivityEvent(db, {
+      walletAddress,
+      policyId,
+      agentId: agent.id,
+      counterpartyAgentId,
+      type: ActivityType.PENDING,
+      source: ActivitySource.CHAIN,
+      amountUsd: usdValue,
+      target,
+      counterpartyAddress: target,
+      pendingApprovalId: id,
+      txHash: log.transactionHash,
+      logIndex: log.logIndex,
+      blockNumber: log.blockNumber,
+      blockTimestamp,
+      summary,
+    });
+  }
+
+  /** Names for the Approved/Denied summary line. Falls back to a truncated address only
+   * when the catalogued Agent row itself is missing — not expected in steady state, but
+   * defensive against a mid-migration/demo-reset gap. */
+  private async resolveApprovalNames(
+    db: Db,
+    approval: { agentId: string; counterpartyAgentId: string | null; target: string },
+    agentFallbackAddress: string,
+  ) {
+    const counterparty = approval.counterpartyAgentId
+      ? await db.agent.findUnique({
+          where: { id: approval.counterpartyAgentId },
+        })
+      : null;
+    const agent = await db.agent.findUnique({
+      where: { id: approval.agentId },
+    });
+    return {
+      // Falls back to the acting agent's own session key, never `target` (the
+      // counterparty/router address) — the two are different addresses.
+      agentName: agent?.name ?? truncateAddress(agentFallbackAddress),
+      counterpartyName: counterparty?.name ?? truncateAddress(approval.target),
+    };
+  }
+
+  private async handleApprovedOrDenied(
+    db: Db,
+    log: Extract<DecodedLog, { eventName: 'Approved' | 'Denied' }>,
+    walletAddress: string,
+    blockTimestamps: Map<bigint, Date>,
+    resolvedApprovalTxHashes: Set<string>,
+  ) {
+    const id = log.args.id;
+    const approval = await db.pendingApproval.findUnique({
+      where: { id },
+    });
+    if (!approval) {
+      this.logger.warn(
+        `${log.eventName} ${id} has no PendingApproval row — skipping`,
+      );
+      return;
+    }
+
+    const approved = log.eventName === 'Approved';
+    if (approved) {
+      resolvedApprovalTxHashes.add(log.transactionHash);
+    }
+    const blockTimestamp = await this.getBlockTimestamp(
+      log.blockNumber,
+      blockTimestamps,
+    );
+    // Fetched once and reused below for the approved-branch policy mirror refresh —
+    // also gives resolveApprovalNames a same-agent fallback address (the session key)
+    // instead of the counterparty/router address if the Agent row is ever missing.
+    const policy = await db.policy.findUnique({
+      where: { id: approval.policyId },
+    });
+    const { agentName, counterpartyName } = await this.resolveApprovalNames(
+      db,
+      approval,
+      policy?.sessionKey ?? approval.target,
+    );
+
+    await db.pendingApproval.update({
+      where: { id },
+      data: {
+        status: approved ? ApprovalStatus.APPROVED : ApprovalStatus.DENIED,
+        resolvedTxHash: log.transactionHash,
+        resolvedAt: blockTimestamp,
+        resolutionSource: ResolutionSource.CHAIN,
+      },
+    });
+
+    if (approved && policy) {
+      await this.upsertPolicyMirror(
+        db,
+        walletAddress,
+        policy.sessionKey,
+        approval.agentId,
+      );
+    }
+
+    await this.upsertActivityEvent(db, {
+      walletAddress,
+      policyId: approval.policyId,
+      agentId: approval.agentId,
+      counterpartyAgentId: approval.counterpartyAgentId,
+      type: approved ? ActivityType.APPROVED : ActivityType.DENIED,
+      source: ActivitySource.CHAIN,
+      amountUsd: approval.amountUsd,
+      target: approval.target,
+      counterpartyAddress: approval.target,
+      pendingApprovalId: id,
+      txHash: log.transactionHash,
+      logIndex: log.logIndex,
+      blockNumber: log.blockNumber,
+      blockTimestamp,
+      summary: approved
+        ? approvedSummary(agentName, counterpartyName, approval.amountUsd)
+        : deniedSummary(agentName, counterpartyName, approval.amountUsd),
+    });
   }
 
   private async bootstrap(db: Db, address: string, key: string) {

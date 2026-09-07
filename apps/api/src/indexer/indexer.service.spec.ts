@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ChainService } from '../chain/chain.service.js';
+import type { PrismaService } from '../prisma/prisma.service.js';
 
 // Real ABI-log decoding isn't exercised in this file (see the comment in makeService) — the
 // synthetic logs used in `tick()`-level tests are already shaped like decoded viem events, so
@@ -13,13 +15,53 @@ vi.mock('viem', async (importOriginal) => {
 
 import { IndexerService, cursorKeyFor } from './indexer.service.js';
 
+/** Structural shape of the ChainService test double — just what makeService fills in. */
+type MockChain = {
+  handlerWalletAddress: string;
+  chainId: number;
+  handlerWalletAbi: unknown[];
+  publicClient: {
+    getBlockNumber: ReturnType<typeof vi.fn>;
+    getLogs: ReturnType<typeof vi.fn>;
+    getBlock: ReturnType<typeof vi.fn>;
+    readContract: ReturnType<typeof vi.fn>;
+  };
+};
+
+/** Structural shape of the PrismaService test double — just the models/methods the indexer
+ * actually calls, plus a `$transaction` that runs the callback against this same object. */
+type MockPrisma = {
+  indexerCursor: {
+    findUnique: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+  };
+  wallet: { upsert: ReturnType<typeof vi.fn> };
+  agent: {
+    upsert: ReturnType<typeof vi.fn>;
+    findUnique: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+  };
+  policy: {
+    upsert: ReturnType<typeof vi.fn>;
+    findUnique: ReturnType<typeof vi.fn>;
+  };
+  pendingApproval: {
+    upsert: ReturnType<typeof vi.fn>;
+    findUnique: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+  };
+  activityEvent: { upsert: ReturnType<typeof vi.fn> };
+  $transaction: (arg: unknown) => Promise<unknown>;
+};
+
 function makeService(overrides: {
   cursor?: { blockNumber: bigint } | null;
   latestBlock?: bigint;
   owner?: string;
   logs?: unknown[];
   existingCounterparty?: { id: string; name: string } | null;
-  existingPolicy?: { id: string } | null;
+  existingPolicy?: { id: string; sessionKey?: string } | null;
   existingPendingApproval?: Record<string, unknown> | null;
   pendingApprovalTuple?: readonly [
     string,
@@ -28,8 +70,8 @@ function makeService(overrides: {
     bigint,
     bigint,
     boolean,
+    number,
   ];
-  isKnownRouter?: boolean;
   policyTuple?: readonly [
     bigint,
     bigint,
@@ -54,9 +96,14 @@ function makeService(overrides: {
     false,
   ] as const;
 
-  const chain = {
+  const chain: MockChain = {
     handlerWalletAddress: '0xAbCd000000000000000000000000000000dEaD',
     chainId: 31337,
+    // Real ABI-log decoding isn't exercised here — parseEventLogs is mocked as a passthrough
+    // (see top of file), and `logs` is already shaped like decoded viem events when a
+    // `tick()`-level test needs one. The per-event handler tests call the private handleLog()
+    // directly, bypassing parseEventLogs entirely.
+    handlerWalletAbi: [],
     publicClient: {
       getBlockNumber: vi.fn().mockResolvedValue(overrides.latestBlock ?? 5n),
       getLogs: vi.fn().mockResolvedValue(overrides.logs ?? []),
@@ -79,23 +126,16 @@ function makeService(overrides: {
               20000000000000000n,
               20_00000000n,
               false,
+              0, // CallKind.TRANSFER
             ],
           );
-        }
-        if (functionName === 'knownRouters') {
-          return Promise.resolve(overrides.isKnownRouter ?? false);
         }
         throw new Error(`Unexpected readContract call: ${functionName}`);
       }),
     },
   };
-  // Real ABI-log decoding isn't exercised here — parseEventLogs is mocked as a passthrough
-  // (see top of file), and `logs` is already shaped like decoded viem events when a
-  // `tick()`-level test needs one. The per-event handler tests call the private handleLog()
-  // directly, bypassing parseEventLogs entirely.
-  (chain as any).handlerWalletAbi = [];
 
-  const prisma = {
+  const prisma: MockPrisma = {
     indexerCursor: {
       findUnique: vi.fn().mockResolvedValue(overrides.cursor ?? null),
       create: vi.fn().mockResolvedValue(undefined),
@@ -158,20 +198,42 @@ function makeService(overrides: {
     activityEvent: {
       upsert: vi.fn().mockResolvedValue(undefined),
     },
-  } as any;
-  // Interactive transactions in these tests just run the callback against the same mock
-  // client — real atomicity isn't what's under test here (that's Prisma's own guarantee).
-  prisma.$transaction = vi.fn().mockImplementation((arg: unknown) => {
-    if (typeof arg === 'function') return arg(prisma);
-    return Promise.all(arg as Promise<unknown>[]);
-  });
+    // Interactive transactions in these tests just run the callback against this same mock
+    // client — real atomicity isn't what's under test here (that's Prisma's own guarantee).
+    // The closure over `prisma` is safe despite referencing the const before its statement
+    // finishes: this function only runs later, once $transaction is actually invoked.
+    $transaction: (arg: unknown) => {
+      if (typeof arg === 'function')
+        return (arg as (tx: MockPrisma) => Promise<unknown>)(prisma);
+      return Promise.all(arg as Promise<unknown>[]);
+    },
+  };
 
-  const service = new IndexerService(chain as any, prisma as any);
+  const service = new IndexerService(
+    chain as unknown as ChainService,
+    prisma as unknown as PrismaService,
+  );
   return { service, chain, prisma };
 }
 
+/** Structural view of IndexerService exposing just its private handleLog(), so the
+ * per-event tests can call it directly without going through a full tick(). */
+type HandleLogCapable = {
+  handleLog: (
+    db: unknown,
+    log: unknown,
+    walletAddress: string,
+    blockTimestamps: Map<bigint, Date>,
+  ) => Promise<void>;
+};
+
 function callHandleLog(service: IndexerService, prisma: unknown, log: unknown) {
-  return (service as any).handleLog(prisma, log, WALLET, new Map<bigint, Date>());
+  return (service as unknown as HandleLogCapable).handleLog(
+    prisma,
+    log,
+    WALLET,
+    new Map<bigint, Date>(),
+  );
 }
 
 describe('cursorKeyFor', () => {
@@ -259,6 +321,46 @@ describe('IndexerService.tick', () => {
     expect(prisma.activityEvent.upsert).toHaveBeenCalledTimes(2);
     const [firstCall, secondCall] = prisma.activityEvent.upsert.mock.calls;
     expect(firstCall[0].where).toEqual(secondCall[0].where);
+  });
+
+  it('writes one ActivityEvent, not two, when Approved and Executed fire in the same tx', async () => {
+    // approve() emits both Approved(id) and Executed(sessionKey, target, usdValue, kind)
+    // in one transaction; the feed should show one row for the user's approval, not a
+    // second "paid" row right behind it for the same action.
+    const { service, prisma } = makeService({
+      cursor: { blockNumber: 2n },
+      latestBlock: 3n,
+      logs: [
+        {
+          eventName: 'Approved',
+          args: { id: '0xapproval1' },
+          blockNumber: 3n,
+          logIndex: 0,
+          transactionHash: '0xtx-approve',
+        },
+        {
+          eventName: 'Executed',
+          args: {
+            sessionKey: '0x1111111111111111111111111111111111aaaa',
+            target: '0x3333333333333333333333333333333333cccc',
+            usdValue: 20_00000000n,
+            kind: 0,
+          },
+          blockNumber: 3n,
+          logIndex: 1,
+          transactionHash: '0xtx-approve',
+        },
+      ],
+    });
+
+    await service.tick();
+
+    expect(prisma.activityEvent.upsert).toHaveBeenCalledTimes(1);
+    expect(prisma.activityEvent.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ type: 'APPROVED' }),
+      }),
+    );
   });
 
   it('does not advance the cursor when a step throws mid-batch', async () => {
@@ -390,7 +492,7 @@ describe('IndexerService (private) handleLog', () => {
     );
   });
 
-  it('AgentFrozen(false): writes an UNFROZEN row without touching frozenAt', async () => {
+  it('AgentFrozen(false): writes an UNFROZEN row and clears frozenAt', async () => {
     const { service, prisma } = makeService({});
 
     await callHandleLog(service, prisma, {
@@ -402,7 +504,7 @@ describe('IndexerService (private) handleLog', () => {
     });
 
     expect(prisma.policy.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ update: expect.not.objectContaining({ frozenAt: expect.anything() }) }),
+      expect.objectContaining({ update: expect.objectContaining({ frozenAt: null }) }),
     );
     expect(prisma.activityEvent.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -548,9 +650,8 @@ describe('IndexerService (private) handleLog', () => {
     );
   });
 
-  it('Proposed: a call to a known router with calldata is classified as a swap, not a payment', async () => {
+  it('Proposed: a call proposed with CallKind.SWAP is classified as a swap, not a payment', async () => {
     const { service, prisma } = makeService({
-      isKnownRouter: true,
       pendingApprovalTuple: [
         SESSION_KEY,
         TARGET2,
@@ -558,6 +659,7 @@ describe('IndexerService (private) handleLog', () => {
         20000000000000000n,
         20_00000000n,
         false,
+        1, // CallKind.SWAP
       ],
     });
 
@@ -661,6 +763,35 @@ describe('IndexerService (private) handleLog', () => {
     expect(prisma.activityEvent.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         create: expect.objectContaining({ type: 'DENIED' }),
+      }),
+    );
+  });
+
+  it('Approved: falls back to the policy session key, not the target address, when the acting Agent row is missing', async () => {
+    const policySessionKey = '0x2222222222222222222222222222222222bbbb';
+    const { service, prisma } = makeService({
+      existingPolicy: { id: 'policy_1', sessionKey: policySessionKey },
+    });
+    prisma.agent.findUnique.mockImplementation(
+      ({ where }: { where: { id?: string; address?: string } }) => {
+        if (where.id === 'agent_1') return Promise.resolve(null); // missing acting agent
+        return Promise.resolve({ id: where.id, name: '0x3333…cccc' });
+      },
+    );
+
+    await callHandleLog(service, prisma, {
+      eventName: 'Approved',
+      args: { id: APPROVAL_ID },
+      blockNumber: 13n,
+      logIndex: 0,
+      transactionHash: '0xtx13',
+    });
+
+    expect(prisma.activityEvent.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          summary: expect.stringContaining('0x2222…bbbb'),
+        }),
       }),
     );
   });

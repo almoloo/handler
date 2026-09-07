@@ -2,5 +2,9 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+# Pinned so a toolchain update can't silently change bytecode — the anvil/dev deployment
+# addresses committed in packages/contracts/ts/addresses.ts are deterministic only as long
+# as the compiler producing them doesn't drift.
+solc = "0.8.26"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

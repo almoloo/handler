@@ -43,4 +43,10 @@ describe('resolveHandlerWalletAddress', () => {
       /No HandlerWallet address configured/,
     );
   });
+
+  it('throws for a configured but still-placeholder address (e.g. Base Sepolia "0x...")', () => {
+    expect(() => resolveHandlerWalletAddress(84532)).toThrow(
+      /is not a valid address/,
+    );
+  });
 });

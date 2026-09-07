@@ -5,29 +5,6 @@ one.
 
 ---
 
-## Remaining sub-features
-
-- [x] 4a. Tokens & theme foundation — Completed
-- [x] 4b. Core components — Avatar, Badge, Button, IconButton — Completed
-- [x] 4c. Forms components — Checkbox, Input, Radio, SearchInput, Select, Slider, Switch — Completed
-- [x] 4d. Feedback components — Banner, EmptyState, ProgressBar, Toast, Tooltip — Completed
-- [x] 4e. Navigation components — FilterChips, NavItem, Stepper, Tabs — Completed
-- [x] 4f. Overlay components — Dialog, Menu — Completed
-- [x] 4g. Data & Trust components — Card, ListRow, StatCard, Table, TrustIndicator — Completed
-
-**All 7 sub-features are complete — the 4a–4g design-system rollout is done.**
-Contrary to this note's original assumption, none of the 27 components
-actually use HeadlessUI except `Dialog` (built on it deliberately for its
-focus-trap/portal/Escape/ARIA behavior, not because the canvas used it — the
-canvas didn't). All 27 components are exported from
-`apps/web/components/ui/index.ts` but remain unconsumed by any screen. The
-marketing landing page (see History) was the first consumer; building the
-real Payroll screen at `/app` (per `frontend-roadmap.md` §7 day 2) is still
-the natural next frontend `/feature`, once contracts unblock it or in
-parallel on mock data.
-
----
-
 ## History
 
 - **Coolify Docker Compose deployment** — production Dockerfiles for api/web plus a docker-compose.prod.yml so the whole stack deploys as one Coolify resource (Completed)
@@ -46,4 +23,5 @@ parallel on mock data.
 - **Marketing landing page at `/`** — build the public marketing homepage from the imported `Handler Landing Page.dc.html` canvas, re-skinned onto the current design-system tokens; moves the future in-app Payroll screen from `/` to `/app` per confirmed scope decision (Completed)
 - **HandlerWallet core contract** — the guarded agent wallet: `AgentPolicy` management, the `execute()`/`tryExecute()` 7-step check pipeline, a minimal propose/approve/deny cosign queue, and every event/custom error the backend indexer needs, per contracts-roadmap §2.1's day-2 exit criterion; `TrustReader`/`PriceConverter` land as owner-settable stubs behind stable interfaces, with real ERC-8004/Chainlink reads deferred to later features. Audit + fixes: rejected `address(0)` as a call target (a loose FLAGGED trust floor would otherwise let an agent burn funds to it), deduplicated the epoch-roll math shared by `execute()`/`tryExecute()` and `approve()`, fixed `nonReentrant` modifier ordering, added an explicit overflow guard on `PriceConverter`'s USD-8 cast, and strengthened two event-emission tests that weren't actually checking their payload (Completed)
 - **Backend indexer for HandlerWallet events** — apps/api's chain/ and indexer/ modules: a transaction-wrapped, 3s cron indexer that walks HandlerWallet's logs off a local anvil deployment and decodes all 8 events into the Postgres schema (Wallet/Agent/Policy/ActivityEvent/PendingApproval/IndexerCursor), idempotently, per backend-roadmap §4.1's day-2 exit criterion. Included a minimal Foundry dev-deploy script (packages/contracts/script/DeployDev.s.sol) since no deployment existed yet, and a packages/contracts package.json `exports` map fix (the previous entry silently broke subpath imports like `addresses.ts`). Policy mirror refreshes always read chain state through rather than replaying epoch-roll math in TypeScript. Audit + fixes: added a re-entrancy guard on the cron tick (`@Interval` doesn't wait for the previous run, so an overlapping tick could otherwise race on the same cursor/agent rows), and taught the `Proposed` handler to distinguish a proposed swap (known router + calldata) from a payment, matching the classification `Executed` already did (Completed)
+- **Audit fixes: indexer correctness/structure, chain-env validation, prod compose, cleanup** — fix: address all findings from the 2026-09-07 full-project audit (approve() swap-kind mislabeling, double feed rows on approve, oversized handleLog(), unvalidated chain address, missing prod CHAIN_RPC_URL, stale frozenAt, wrong fallback name, /app placeholder tokens, duplicated Avatar/ListRow initials, disabled any-lint, stray files, unpinned solc). Follow-up audit of the fix itself caught one self-inflicted regression: an earlier verification step's `git checkout` had silently reverted `generated.ts` to its pre-fix (stale) ABI after Step 1 — re-ran codegen and confirmed the `PendingApproval.kind` field is present before closing out (Completed)
 </content>

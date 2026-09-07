@@ -39,6 +39,7 @@ contract HandlerWallet is Ownable2Step, ReentrancyGuard {
         uint256 value;
         uint128 usdValue;
         bool resolved;
+        CallKind kind;
     }
 
     enum CallKind {
@@ -315,7 +316,7 @@ contract HandlerWallet is Ownable2Step, ReentrancyGuard {
         EvalResult memory r = _evaluate(msg.sender, call);
 
         if (r.requiresCosign) {
-            _propose(msg.sender, call, r.usdValue);
+            _propose(msg.sender, call, r.usdValue, r.kind);
             return false;
         }
 
@@ -334,7 +335,10 @@ contract HandlerWallet is Ownable2Step, ReentrancyGuard {
 
     uint256 private _proposalNonce;
 
-    function _propose(address sessionKey, Call calldata call, uint128 usdValue) internal returns (bytes32 id) {
+    function _propose(address sessionKey, Call calldata call, uint128 usdValue, CallKind kind)
+        internal
+        returns (bytes32 id)
+    {
         id = keccak256(abi.encode(sessionKey, call.target, call.data, call.value, usdValue, _proposalNonce++));
         pendingApprovals[id] = PendingApproval({
             sessionKey: sessionKey,
@@ -342,7 +346,8 @@ contract HandlerWallet is Ownable2Step, ReentrancyGuard {
             data: call.data,
             value: call.value,
             usdValue: usdValue,
-            resolved: false
+            resolved: false,
+            kind: kind
         });
         emit Proposed(id, sessionKey, call.target, call.value, usdValue);
     }
@@ -359,7 +364,7 @@ contract HandlerWallet is Ownable2Step, ReentrancyGuard {
             _revertForBlockReason(r.reason, r, call.target);
         }
 
-        id = _propose(msg.sender, call, r.usdValue);
+        id = _propose(msg.sender, call, r.usdValue, r.kind);
     }
 
     function approve(bytes32 id) external nonReentrant onlyOwner {
@@ -384,7 +389,7 @@ contract HandlerWallet is Ownable2Step, ReentrancyGuard {
         policies[approval.sessionKey].spentThisEpoch = newSpent;
 
         emit Approved(id);
-        emit Executed(approval.sessionKey, approval.target, approval.usdValue, CallKind.TRANSFER);
+        emit Executed(approval.sessionKey, approval.target, approval.usdValue, approval.kind);
 
         (bool success, bytes memory returndata) = approval.target.call{value: approval.value}(approval.data);
         if (!success) {

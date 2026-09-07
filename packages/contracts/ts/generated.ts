@@ -128,6 +128,11 @@ export const handlerWalletAbi = [
       { name: 'value', internalType: 'uint256', type: 'uint256' },
       { name: 'usdValue', internalType: 'uint128', type: 'uint128' },
       { name: 'resolved', internalType: 'bool', type: 'bool' },
+      {
+        name: 'kind',
+        internalType: 'enum HandlerWallet.CallKind',
+        type: 'uint8',
+      },
     ],
     stateMutability: 'view',
   },

@@ -1,3 +1,5 @@
+import { Avatar } from "./avatar";
+
 export interface ListRowProps {
   avatarName: string;
   title: string;
@@ -15,18 +17,9 @@ const STATUS_DOT_CLASSES: Record<NonNullable<ListRowProps["status"]>, string> = 
 };
 
 export function ListRow({ avatarName, title, subtitle, amount, status, time }: ListRowProps) {
-  const initials = (avatarName || "?")
-    .split(" ")
-    .map((word) => word[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
   return (
     <div className="flex items-center gap-3 border-b border-[var(--border-subtle)] px-1 py-3.5 font-sans">
-      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--brand-500)] text-[length:var(--text-sm)] font-[var(--weight-semibold)] text-[var(--gray-0)]">
-        {initials}
-      </span>
+      <Avatar name={avatarName || "?"} size={36} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[length:var(--text-base)] font-[var(--weight-medium)] text-[var(--text-primary)]">
           {title}

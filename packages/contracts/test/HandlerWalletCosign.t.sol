@@ -98,6 +98,23 @@ contract HandlerWalletCosignTest is Test {
         assertEq(_spentThisEpoch(), 60_00000000, "approved spend counts against the daily allowance");
     }
 
+    function test_Approve_EmitsExecutedWithSwapKindForRouterProposal() public {
+        address router = makeAddr("router");
+        vm.prank(owner);
+        wallet.setKnownRouter(router, true);
+        vm.prank(owner);
+        trustReader.setOverride(router, Tier.NEW);
+
+        vm.prank(sessionKey);
+        bytes32 id = wallet.propose(HandlerWallet.Call({target: router, data: hex"1234", value: 0.03 ether})); // $60
+
+        vm.expectEmit(true, true, false, true, address(wallet));
+        emit HandlerWallet.Executed(sessionKey, router, 60_00000000, HandlerWallet.CallKind.SWAP);
+
+        vm.prank(owner);
+        wallet.approve(id);
+    }
+
     function test_Approve_RevertsIfNotOwner() public {
         bytes32 id = _proposeSixtyDollars();
         vm.expectRevert();
