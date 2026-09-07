@@ -7,8 +7,7 @@
     "dev": "pnpm --parallel --filter web --filter api dev",
     "dev:chain": "docker compose up -d postgres anvil",
     "codegen": "pnpm --filter @handler/contracts codegen",
-    "build": "pnpm -r build",
-    "smoke": "tsx scripts/smoke.ts"
+    "build": "pnpm -r build"
   },
   "keywords": [],
   "author": "",

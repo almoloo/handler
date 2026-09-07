@@ -31,8 +31,11 @@ pnpm dev                   # run web + api in parallel (pnpm --filter web --filt
 pnpm dev:chain             # docker compose up -d postgres anvil (local Postgres + forked Anvil chain)
 pnpm codegen               # regenerate @handler/contracts ABIs/types (forge build && wagmi generate)
 pnpm build                 # build all workspace packages (pnpm -r build)
-pnpm smoke                 # tsx scripts/smoke.ts
 ```
+
+`pnpm smoke` (`scripts/smoke.ts`, running all demo beats headless) is planned per
+`context/backend-roadmap.md` but not yet added — don't add a `smoke` script entry
+until that file exists.
 
 Per-part commands (run from repo root with `--filter`, or `cd` into the part):
 

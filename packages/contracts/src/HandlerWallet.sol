@@ -60,8 +60,10 @@ contract HandlerWallet is Ownable2Step, ReentrancyGuard {
     // Storage
     // ---------------------------------------------------------------------
 
-    ITrustReader public trustReader;
-    IPriceConverter public priceConverter;
+    // Set once in the constructor and never changed — a setter here would be a policy-bypass
+    // surface (whoever controls the trust/price source controls what the checks see).
+    ITrustReader public immutable trustReader;
+    IPriceConverter public immutable priceConverter;
 
     mapping(address sessionKey => AgentPolicy policy) public policies;
     mapping(address sessionKey => bool hired) public isHired;
