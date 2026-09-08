@@ -1,7 +1,98 @@
 # Current Feature
 
-Nothing in progress. Run `/feature`, `/fix`, or `/rollback` to start the next
-one.
+**Title:** Drop 1inch entirely; keep Riley but disable its run action until a real payee exists
+
+**Type:** Fix
+
+## The problem
+
+Coolify's prod deploy crashes the `api` container at NestJS bootstrap:
+`agents.config.ts`'s `parseAgentsEnv()` requires `ONEINCH_API_KEY` (non-empty),
+which isn't set — and won't be: 1inch's dev-portal API key now requires KYC,
+which the user has decided not to do. 1inch is being cut from the product
+entirely, not just worked around for this deploy.
+
+This is more than an env-var fix: `context/project-overview.md` names 1inch
+swaps as part of Objective 3 ("real economic action"), and `agents.service.ts`'s
+Riley is currently the **only** implemented catalog agent, built entirely
+around a 1inch swap. Riley's session key (`RILEY_SESSION_KEY`) is also the
+secret the Ledger Key Ring custody story (`context/backend-roadmap.md` §4.2,
+the primary partner-track target) is built around — so Riley itself must stay,
+with its signer and catalog registration intact, even though its one action
+(the swap) is being removed. The subcontractor/villain agents that were
+supposed to give Riley a real (non-swap) payment to make aren't built yet
+(`agents.service.ts` run() comment: "subcontractor/villain land in a later
+feature") — pulling that forward is a real feature, out of scope for this fix.
+
+## The fix
+
+Remove every 1inch/`OneInchService`/swap code path from `apps/api`, and
+disable Riley's "run now" action (visibly incomplete — no fake/placeholder
+action takes its place) until a real payee exists. Keep `RILEY_SESSION_KEY`,
+Riley's signer, and its catalog registration untouched, since the Ledger
+secret-custody story depends on a real agent key existing and being decrypted
+via Key Ring — the fix must not require any code or doc changes there beyond
+dropping `ONEINCH_API_KEY` from the ciphertext/env story.
+
+Must not break: `GET /agents`, `GET /agents/catalog`, `GET /agents/:id` (all
+depend on `AgentsService.walletAddressForOwner`, which stays), or the SIWE
+auth guard on those routes. Confirmed the frontend has no `/agents/:id/run`
+caller yet, so removing that route is safe.
+
+## Build steps
+
+1. **Remove 1inch/OneInchService and Riley's run action from `apps/api`.**
+   - Delete `apps/api/src/agents/oneinch.service.ts` and
+     `oneinch.service.spec.ts`.
+   - `agents.config.ts`: drop `ONEINCH_API_KEY`, `ONEINCH_CHAIN_ID`,
+     `RILEY_SWAP_AMOUNT_WEI`, `RILEY_SWAP_TOKEN_OUT` from the zod schema;
+     keep `RILEY_SESSION_KEY`. Update `agents.config.spec.ts` to match.
+   - `agents.service.ts`: remove the `OneInchService` constructor
+     dependency and the `run()`/`executeRun()` swap logic. Keep the
+     `rileyAccount`/`rileyWalletClient` signer and `onModuleInit`'s catalog
+     upsert. Update `RILEY_DESCRIPTION` to accurate, no-jargon copy that
+     doesn't reference 1inch or rebalancing (e.g. reflect that Riley has no
+     action yet).
+   - `agents.controller.ts` / `agents.module.ts`: remove the
+     `POST :id/run` route and the `OneInchService` provider.
+   - `agents.service.spec.ts`: drop the removed run/executeRun test cases.
+   - `apps/api/docker/entrypoint.sh`: drop `ONEINCH_API_KEY` from the
+     Key Ring decrypt comment/exports story — only `RILEY_SESSION_KEY`.
+   - `docker-compose.prod.yml`: remove `ONEINCH_API_KEY` from the `api`
+     service's environment block.
+   - `.env.example`: remove the `ONEINCH_API_KEY=` line.
+   - Done when: `pnpm --filter api build` and `pnpm --filter api test`
+     pass with no reference to `ONEINCH_API_KEY`/`OneInchService` left in
+     `apps/api/src`.
+
+2. **Update context docs to remove 1inch from scope.**
+   - `context/project-overview.md`: drop 1inch from Objective 3 (rests on
+     agent-to-agent payments only, not yet built), the tech-stack line
+     about the 1inch API key living in Key Ring ciphertext, and the
+     "swaps from 1inch" line in Product Integrity's "real integrations or
+     nothing" rule.
+   - `context/backend-roadmap.md`: remove 1inch/swap references from
+     §4.2's Riley description and the Ledger Key Ring pivot paragraph
+     (ciphertext story is `RILEY_SESSION_KEY` only now), the day 3/6
+     day-by-day exit criteria, and §7's risk rules. §4.5's Chainlink
+     Confidential Workflow stretch loses its "1inch API key" sensitive-input
+     example — mark that stretch's sensitive-input candidate as TBD/open
+     rather than inventing a replacement.
+   - `CLAUDE.md`: update the one-line project summary that currently says
+     "1inch swaps remain a real feature but are no longer a targeted prize
+     track" — 1inch is fully out now, not just off the prize track.
+   - `docs/ledger-key-ring-setup.md`: drop `ONEINCH_API_KEY` from the
+     two-secrets story, leaving `RILEY_SESSION_KEY` as the one Key Ring
+     ciphertext secret.
+   - Done when: `grep -ri "1inch\|oneinch" context/ CLAUDE.md docs/` finds
+     nothing left implying 1inch is still an active feature.
+
+## Verify
+
+- `pnpm --filter api build` and `pnpm --filter api test` pass.
+- `grep -rn "ONEINCH\|OneInch\|1inch" apps/api/src` returns nothing.
+- Redeploy in Coolify without `ONEINCH_API_KEY` set — `api` container passes
+  its healthcheck.
 
 ---
 
@@ -39,3 +130,4 @@ one.
 - **SIWE sign-in gate + wallet connect for apps/web** — split out ahead of the Payroll screen (frontend-roadmap §4.1) after finding apps/web had no wallet-connect/SIWE flow at all, so `GET /agents` could never authenticate; adds wagmi wallet connect, the nonce/verify/session round trip, a typed `lib/api.ts` client, a `/app` sign-in gate, and (small, cross-part) CORS on apps/api for the web origin. Found and fixed the exact `siwe` message format by testing against the real parser rather than hand-rolling it (a hand-built message failed to parse on the first attempt) and corrected `SIWE_DOMAIN`'s local-dev default (`localhost` → `localhost:3000`) so sign-in actually works against the web dev server. Audit + fixes: `apps/web/Dockerfile` never received `NEXT_PUBLIC_API_URL` as a build arg, so Next's build-time env inlining baked `undefined` into the production client bundle regardless of `docker-compose.prod.yml`'s runtime setting — confirmed via a real `docker build` before and after the fix; `docker-compose.prod.yml`'s `api` service was also missing `SESSION_SECRET`/`SIWE_DOMAIN`/`SIWE_CHAIN_ID`/this feature's new `WEB_ORIGIN` from its env passthrough (same class of gap as the earlier `RILEY_SESSION_KEY` crash-loop); moved the three new hooks from `lib/auth/` to `hooks/` to match `coding-standards.md`'s declared convention; tightened an `any`-typed error-body parse in `lib/api.ts`. **Not verified** (no wallet-capable browser in this environment): the interactive connect/sign/reject/wrong-network/disconnect click-through — the underlying API calls and gate logic were proven end-to-end via a scripted round trip against the real backend instead (Completed)
 - **Payroll (home) screen for apps/web** — frontend-roadmap §4.1 / the still-outstanding day-2 exit criterion: replaces `/app`'s placeholder with the real home screen (total-under-management header, agent rows with avatar + trust badge + spent-today-vs-allowance bar + status dot, real empty state, loading and error states), reading the already-built `GET /agents` through a typed `useAgents` hook behind the existing SIWE gate. **Spec correction made before any code was written**: the draft derived the pending-approval status dot from `GET /activity?filter=pending`, but the indexer never clears a `PENDING` ActivityEvent when its approval resolves (it appends APPROVED/DENIED and flips `PendingApproval.status`), so every agent would have shown "pending approval" permanently after its first one — replaced, with approval, by a small cross-part addition of `pendingApprovalCount` to `PayrollAgent` (one wallet-scoped `groupBy` on `PendingApproval` keyed by `policyId`, since `Policy` is unique on `[walletAddress, sessionKey]` rather than per agent), plus an e2e case pinning open-vs-resolved that was confirmed non-vacuous by reproducing the original bug. **Scope cut**: §4.1's swipe-to-freeze control is deferred to its already-planned day-5 agent-file feature — freezing is an owner-signed wagmi write and no contract-write path exists in `apps/web` yet, so this screen renders frozen state but not the control. Caught during the build: a `--text-3xl` token that doesn't exist (the scale stops at `--text-xl`), which would have silently rendered at the inherited size — the same Tailwind failure class as the earlier `text-[var(--text-*)]` and `tracking-wider` bugs; every token in the new files is now checked against `globals.css`. Audit + fixes: a zero `dailyCapUsd` (reachable — `hireAgent` validates nothing) divided to `width:NaN%` and rendered a *full* blue bar reading as "allowance exhausted", reproduced and fixed by clamping the bar's `max` as geometry only while the label prints the true cap; a 401 showed a generic "refresh to try again" banner instead of bouncing to sign-in per frontend-roadmap §5 (and retried 3× first), fixed once in `Providers` via a `QueryCache.onError` that invalidates the session query so the activity feed and agent file inherit the same behavior; the header asserted `$0.00` under a failed load, now `—`; removed an unused `agentsQueryKey` export and a half-handled negative-sign branch in `formatCents`. **Not verified**: the browser click-through — no wallet-capable browser or screenshot tooling in this environment, and `/implement` forbids installing Playwright mid-feature; instead the data path was proven by a live SIWE round trip against the running API returning the real payload, and the row's five states (pending / frozen / active / zero-cap / fully-spent) by a scratch server-render of that exact payload. **Follow-up**: `apps/web` still declares no test command, so `lib/format.ts`'s money math ships with no automated test — standing up that runner is its own feature (Completed)
 - **Hire flow (onboarding) for apps/web** — frontend-roadmap §4.2 day-3 scope: a 3-step wizard at `/app/hire` (pick agent from `GET /agents/catalog`, set allowance via a $/day slider with auto-derived per-tx cap and co-sign threshold, set three permission toggles) ending in a real owner-signed `hireAgent(sessionKey, policy)` call via a new `useHireAgent` hook (`useWriteContract` + `useWaitForTransactionReceipt`) — the first owner-signed on-chain write from `apps/web`, establishing the wagmi write pattern freeze/approve/deny reuse. A check-draw success screen invalidates/polls `["agents"]` and routes to `/app`; fixed the Payroll empty-state button's dead `/hire` link to `/app/hire`. **Environment gap found and fixed before any chain testing could happen**: this sandbox's running dev chain was a stray, unrelated `anvil` on port 8555 while the API expects `8545`; started the correct anvil, redeployed `DeployDev.s.sol` (address matched the committed `addresses.ts` entry exactly, confirming the deterministic-deploy assumption), and cleared one stale `IndexerCursor` row left over from an earlier dead anvil instance that was blocking the indexer's bootstrap against the fresh chain. Verified both the happy path and the wrong-signer revert path with real signed txs against that chain, then a second real hire proving the indexed payroll list picks up a new row. Audit + fixes: a wrong-signer attempt reverts at *simulation* (before any tx is sent), so the original code path surfaced viem's raw error text — Solidity error names, addresses — in the UI, violating the no-jargon rule; now always shows one fixed generic message regardless of failure shape. Deduplicated a `TrustTier` → badge-level mapping that had been copy-pasted into both `catalog-agent-row.tsx` and the earlier `payroll-agent-row.tsx` into a shared `lib/trust.ts`. Replaced a single immediate `invalidateQueries` after tx confirmation (which could race ahead of the backend indexer's 3s poll interval and silently miss the new row) with a bounded 1.5s-interval refetch poll. Disabled Cancel while a tx is pending, so navigating away mid-signature no longer strands the user off the success screen. **Not verified**: browser click-through — same documented gap as the Payroll and SIWE features; the wizard's interactivity was proven by code-path reasoning plus live-chain evidence for every irreversible step (the actual `hireAgent` calls), not a UI screenshot. **Follow-up, not new**: `apps/web` still has no test runner, so `lib/hire.ts`'s `deriveCaps` joins `lib/format.ts`'s money math as untested pure logic (Completed)
+- **Drop 1inch entirely; keep Riley but disable its run action until a real payee exists** — fix: prod Coolify deploy required `ONEINCH_API_KEY`, which now needs KYC the user won't do; cuts 1inch/OneInchService from `apps/api` and scope docs while preserving Riley's session key and catalog registration (the Ledger Key Ring secret-custody story's key, per backend-roadmap §4.2) (Current)
