@@ -1,25 +1,17 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
-import { createWalletClient, http, type Address, type Hex } from 'viem';
+import { createWalletClient, http, type Address } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { ChainService } from '../chain/chain.service.js';
 import { parseChainEnv } from '../chain/chain.config.js';
+import { hasActedThisEpoch, submitAgentPayment } from '../chain/agent-payment.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import {
-  AgentKind,
-  ExecutionKind,
-  IntentStatus,
-} from '../generated/prisma/enums.js';
+import { AgentKind } from '../generated/prisma/enums.js';
 import { parseAgentsEnv, type AgentsEnv } from './agents.config.js';
 
 const RILEY_NAME = 'Riley';
 const RILEY_DESCRIPTION = 'Pays the Subcontractor for completed work, once per day.';
 const RILEY_KEY_ENV_VAR = 'RILEY_SESSION_KEY';
-
-/** Mirrors `HandlerWallet`'s lazy 24h epoch roll (see `_rollEpoch` in the
- * contract and `PoliciesService.spentTodayUsd`) — must stay identical to
- * both or "spent today" and "already paid today" silently disagree. */
-const EPOCH_SECONDS = 86_400n;
 
 /** A minimal slice of a `Policy` row {@link AgentsService.run} needs. */
 type RileyPolicy = {
@@ -170,42 +162,26 @@ export class AgentsService implements OnModuleInit {
 
   /** Whether Riley has already planned/submitted/confirmed a payment to
    * `subcontractorAddress` for this wallet within the wallet's current
-   * on-chain epoch window — mirrors `PoliciesService.spentTodayUsd`'s
-   * `now > epochStart + 86_400` rule so this never drifts from what the UI
-   * reports as "spent today". A prior `FAILED` attempt doesn't count, so a
-   * failed run is retried on the next tick instead of being skipped for the
-   * rest of the epoch. */
-  private async alreadyPaidThisEpoch(
+   * on-chain epoch window. Thin wrapper over the shared
+   * {@link hasActedThisEpoch} — see `agent-payment.ts` for the epoch rule
+   * itself (must stay identical to `PoliciesService.spentTodayUsd`'s). */
+  private alreadyPaidThisEpoch(
     policy: RileyPolicy,
     rileyAgentId: string,
     subcontractorAddress: Address,
   ): Promise<boolean> {
-    const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
-    if (nowSeconds > policy.epochStart + EPOCH_SECONDS) {
-      return false;
-    }
-    const existing = await this.prisma.intent.findFirst({
-      where: {
-        walletAddress: policy.walletAddress,
-        agentId: rileyAgentId,
-        target: subcontractorAddress.toLowerCase(),
-        createdAt: { gte: new Date(Number(policy.epochStart) * 1000) },
-        status: { not: IntentStatus.FAILED },
-      },
-      select: { id: true },
+    return hasActedThisEpoch({
+      prisma: this.prisma,
+      policy,
+      agentId: rileyAgentId,
+      target: subcontractorAddress,
     });
-    return existing !== null;
   }
 
-  /** Writes the `Intent` row before submitting the tx (backend-roadmap §4.2's
-   * "intent row first" rule), then calls `tryExecute` via Riley's own
-   * session-key signer. A submit-time throw (no tx hash yet, e.g. an RPC
-   * error or a simulated revert) marks the `Intent` `FAILED` directly. A
-   * successfully broadcast tx that still reverts on-chain (e.g. the wallet's
-   * own ETH balance can't cover the transfer) emits no `Executed`/
-   * `ExecutionBlocked` log for the indexer to link back to this `Intent`, so
-   * this method also awaits the receipt and marks it `FAILED` on a reverted
-   * status rather than leaving it stuck at `SUBMITTED` forever. */
+  /** Pays the Subcontractor for one wallet, once per epoch. Thin wrapper
+   * over the shared {@link submitAgentPayment} — see `agent-payment.ts` for
+   * the Intent-row-first / submit-throw / reverted-receipt handling shared
+   * with `VillainService`'s blocked-payment attempt. */
   private async payWallet(
     policy: RileyPolicy,
     rileyAgentId: string,
@@ -215,50 +191,16 @@ export class AgentsService implements OnModuleInit {
       return;
     }
 
-    const intent = await this.prisma.intent.create({
-      data: {
-        walletAddress: policy.walletAddress,
-        policyId: policy.id,
-        agentId: rileyAgentId,
-        kind: ExecutionKind.AGENT_PAYMENT,
-        target: subcontractorAddress.toLowerCase(),
-        valueRaw: this.env.RILEY_PAYMENT_WEI.toString(),
-        calldata: '0x',
-        status: IntentStatus.PLANNED,
-      },
+    await submitAgentPayment({
+      prisma: this.prisma,
+      chain: this.chain,
+      account: this.rileyAccount,
+      walletClient: this.rileyWalletClient,
+      walletAddress: policy.walletAddress as Address,
+      policyId: policy.id,
+      agentId: rileyAgentId,
+      target: subcontractorAddress,
+      valueWei: this.env.RILEY_PAYMENT_WEI,
     });
-
-    let txHash: Hex;
-    try {
-      txHash = await this.rileyWalletClient.writeContract({
-        chain: null,
-        account: this.rileyAccount,
-        address: policy.walletAddress as Address,
-        abi: this.chain.handlerWalletAbi,
-        functionName: 'tryExecute',
-        args: [{ target: subcontractorAddress, data: '0x', value: this.env.RILEY_PAYMENT_WEI }],
-      });
-    } catch (error) {
-      await this.prisma.intent.update({
-        where: { id: intent.id },
-        data: { status: IntentStatus.FAILED, error: String(error) },
-      });
-      return;
-    }
-
-    await this.prisma.intent.update({
-      where: { id: intent.id },
-      data: { status: IntentStatus.SUBMITTED, txHash, submittedAt: new Date() },
-    });
-
-    const receipt = await this.chain.publicClient.waitForTransactionReceipt({
-      hash: txHash,
-    });
-    if (receipt.status === 'reverted') {
-      await this.prisma.intent.update({
-        where: { id: intent.id },
-        data: { status: IntentStatus.FAILED, error: 'Transaction reverted on-chain' },
-      });
-    }
   }
 }
