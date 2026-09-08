@@ -23,3 +23,20 @@ export function formatCents(cents: number): string {
 export function formatUsd8(usd8: string): string {
   return formatCents(usd8ToCents(usd8));
 }
+
+/** An ISO timestamp → a short relative label ("just now", "5m", "3h", "2d"),
+ * falling back to a locale date once it's more than a week old. */
+export function formatRelativeTime(iso: string): string {
+  const deltaMs = Date.now() - new Date(iso).getTime();
+  const deltaMinutes = Math.floor(deltaMs / 60_000);
+  if (deltaMinutes < 1) return "just now";
+  if (deltaMinutes < 60) return `${deltaMinutes}m`;
+  const deltaHours = Math.floor(deltaMinutes / 60);
+  if (deltaHours < 24) return `${deltaHours}h`;
+  const deltaDays = Math.floor(deltaHours / 24);
+  if (deltaDays < 7) return `${deltaDays}d`;
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}

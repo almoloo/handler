@@ -20,7 +20,8 @@
     "react-dom": "19.2.8",
     "siwe": "^3.0.0",
     "viem": "^2.56.3",
-    "wagmi": "^3.7.7"
+    "wagmi": "^3.7.7",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

@@ -56,6 +56,80 @@ export interface CatalogAgent {
   trustSummary: string;
 }
 
+/** Mirrors the backend's `ActivityType` enum (`generated/prisma/enums.ts`). */
+export type ActivityType =
+  | "WALLET_CREATED"
+  | "HIRED"
+  | "POLICY_UPDATED"
+  | "FROZEN"
+  | "UNFROZEN"
+  | "SWAP"
+  | "AGENT_PAYMENT"
+  | "TRANSFER"
+  | "CONTRACT_CALL"
+  | "BLOCKED"
+  | "PENDING"
+  | "APPROVED"
+  | "DENIED"
+  | "EXPIRED"
+  | "FAILED";
+
+/** Mirrors the backend's `ActivitySource` enum. */
+export type ActivitySource = "CHAIN" | "RUNTIME";
+
+/** Mirrors the backend's `BlockReason` enum. */
+export type BlockReason =
+  | "AGENT_FROZEN"
+  | "UNKNOWN_CONTRACT"
+  | "SWAPS_NOT_ALLOWED"
+  | "COUNTERPARTY_BELOW_TIER"
+  | "EXCEEDS_PER_TX_CAP"
+  | "EXCEEDS_DAILY_ALLOWANCE"
+  | "REQUIRES_COSIGN"
+  | "STALE_PRICE"
+  | "OTHER";
+
+export type ActivityFilter = "all" | "blocked" | "pending";
+
+export interface ActivityAgentRef {
+  id: string;
+  name: string;
+  avatar: string | null;
+}
+
+/**
+ * One row of `GET /activity` / `GET /events/stream`. Mirrors `ActivityItem`
+ * in apps/api's activity.service.ts field-for-field — this shape is
+ * load-bearing for the approval sheet feature (6b), which reads
+ * `pendingApprovalId` off it, so keep it an exact mirror rather than
+ * narrowing it for this feature's own convenience.
+ * `seq` and every `*Usd`/raw-amount field are decimal strings — parse with
+ * BigInt, never parseFloat.
+ */
+export interface ActivityItem {
+  id: string;
+  seq: string;
+  type: ActivityType;
+  source: ActivitySource;
+  blockReason: BlockReason | null;
+  amountUsd: string | null;
+  tokenAddress: string | null;
+  tokenAmountRaw: string | null;
+  target: string | null;
+  agent: ActivityAgentRef | null;
+  counterparty: ActivityAgentRef | null;
+  txHash: string | null;
+  summary: string;
+  detail: Record<string, unknown>;
+  pendingApprovalId: string | null;
+  createdAt: string;
+}
+
+export interface ActivityPage {
+  items: ActivityItem[];
+  nextCursor: string | null;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -160,6 +234,32 @@ export async function fetchAgents(): Promise<PayrollAgent[]> {
  */
 export async function fetchCatalog(): Promise<CatalogAgent[]> {
   const result = await apiFetch<CatalogAgent[]>("/agents/catalog");
+  if (!result) {
+    throw new ApiError(401, "Session expired");
+  }
+  return result;
+}
+
+/**
+ * One page of the signed-in wallet's activity feed. `{ items: [], nextCursor:
+ * null }` means this owner has no activity yet (e.g. no `hireAgent` tx) — a
+ * real empty state, not an error. A 401 can only mean the session expired
+ * mid-use (the `/app` layout gates on it), so it throws rather than
+ * masquerading as an empty feed.
+ */
+export async function fetchActivity(options?: {
+  filter?: ActivityFilter;
+  before?: string;
+  limit?: number;
+}): Promise<ActivityPage> {
+  const params = new URLSearchParams();
+  if (options?.filter) params.set("filter", options.filter);
+  if (options?.before) params.set("before", options.before);
+  if (options?.limit) params.set("limit", String(options.limit));
+  const query = params.toString();
+  const result = await apiFetch<ActivityPage>(
+    `/activity${query ? `?${query}` : ""}`,
+  );
   if (!result) {
     throw new ApiError(401, "Session expired");
   }
