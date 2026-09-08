@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {Script, console} from "forge-std/Script.sol";
 import {HandlerWallet} from "../src/HandlerWallet.sol";
+import {HandlerWalletFactory} from "../src/HandlerWalletFactory.sol";
 import {TrustReader} from "../src/TrustReader.sol";
 import {PriceConverter} from "../src/PriceConverter.sol";
 import {IIdentityRegistry} from "../src/interfaces/erc8004/IIdentityRegistry.sol";
@@ -12,6 +13,11 @@ import {IReputationRegistry} from "../src/interfaces/erc8004/IReputationRegistry
 /// the broadcasting account. Run against anvil (see pnpm dev:chain); the resulting addresses
 /// are deterministic across every fresh anvil boot, so they get committed into
 /// packages/contracts/ts/addresses.ts rather than regenerated per run.
+///
+/// Also deploys HandlerWalletFactory, linked to the same TrustReader/PriceConverter, alongside
+/// the dev HandlerWallet above — additive only. The dev wallet itself is still created directly
+/// (not via the factory) so its address stays exactly what's already committed in addresses.ts;
+/// wiring the factory into the actual hire flow is a separate, later feature.
 contract DeployDev is Script {
     /// @dev Real ERC-8004 registries, same address on every chain they're deployed to
     /// (incl. Base mainnet) — see packages/contracts/src/interfaces/erc8004/*.sol. Anvil
@@ -28,6 +34,7 @@ contract DeployDev is Script {
         TrustReader trustReader =
             new TrustReader(IIdentityRegistry(IDENTITY_REGISTRY), IReputationRegistry(REPUTATION_REGISTRY));
         HandlerWallet wallet = new HandlerWallet(deployer, trustReader, priceConverter);
+        HandlerWalletFactory factory = new HandlerWalletFactory(trustReader, priceConverter);
 
         vm.stopBroadcast();
 
@@ -35,5 +42,6 @@ contract DeployDev is Script {
         console.log("PriceConverter:", address(priceConverter));
         console.log("TrustReader:", address(trustReader));
         console.log("HandlerWallet:", address(wallet));
+        console.log("HandlerWalletFactory:", address(factory));
     }
 }
