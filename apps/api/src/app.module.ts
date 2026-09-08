@@ -8,6 +8,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { IndexerModule } from './indexer/indexer.module.js';
 import { TrustModule } from './trust/trust.module.js';
 import { ActivityModule } from './activity/activity.module.js';
+import { ApprovalsModule } from './approvals/approvals.module.js';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ActivityModule } from './activity/activity.module.js';
     IndexerModule,
     TrustModule,
     ActivityModule,
+    ApprovalsModule,
   ],
 })
 export class AppModule {}

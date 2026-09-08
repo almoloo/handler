@@ -15,11 +15,9 @@ import { activityStatus } from "@/lib/activity";
  * stream `use-activity-stream.ts` (step 6) already invalidates the shared
  * query cache with, and renders each new row as a slide-in `Toast` — the
  * first of the two orchestrated motion moments in §2. Tapping a pending
- * toast deep-links to `/app/activity?filter=pending`; that's an interim
- * target — 6b repoints it to the real `/app/approve/[tx]` sheet once that
- * route exists. Each toast schedules its own auto-dismiss in
- * `use-ui-store.ts` at push time, so one toast's countdown is never reset
- * by another arriving or leaving.
+ * toast deep-links to `/app/approve/[tx]`, the real approval sheet. Each
+ * toast schedules its own auto-dismiss in `use-ui-store.ts` at push time, so
+ * one toast's countdown is never reset by another arriving or leaving.
  */
 export function NotificationToastLayer() {
   const router = useRouter();
@@ -30,6 +28,7 @@ export function NotificationToastLayer() {
       pushToast({
         status: activityStatus(item.type),
         title: item.summary,
+        pendingApprovalId: item.pendingApprovalId ?? undefined,
       });
     },
     [pushToast],
@@ -50,8 +49,8 @@ export function NotificationToastLayer() {
             className="pointer-events-auto"
             onClick={() => {
               dismissToast(toast.id);
-              if (toast.status === "pending") {
-                router.push("/app/activity?filter=pending");
+              if (toast.status === "pending" && toast.pendingApprovalId) {
+                router.push(`/app/approve/${toast.pendingApprovalId}`);
               }
             }}
           >

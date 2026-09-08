@@ -130,6 +130,36 @@ export interface ActivityPage {
   nextCursor: string | null;
 }
 
+/** Mirrors the backend's `ApprovalStatus` enum. */
+export type ApprovalStatus = "PENDING" | "APPROVED" | "DENIED" | "EXPIRED";
+
+export interface ApprovalAgentRef {
+  id: string;
+  name: string;
+  avatar: string | null;
+  trustTier: TrustTier;
+  trustSummary: string;
+}
+
+/**
+ * `GET /approvals/:id`'s response — the approval sheet's data. Mirrors
+ * `ApprovalDetail` in apps/api's approvals.service.ts field-for-field.
+ * `amountUsd` is an 8-decimal fixed-point integer as a decimal string —
+ * parse with BigInt, never parseFloat.
+ */
+export interface ApprovalDetail {
+  id: string;
+  status: ApprovalStatus;
+  amountUsd: string;
+  target: string;
+  summary: string;
+  decoded: Record<string, unknown>;
+  proposedAt: string;
+  expiresAt: string | null;
+  agent: ApprovalAgentRef;
+  counterparty: ApprovalAgentRef | null;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -260,6 +290,21 @@ export async function fetchActivity(options?: {
   const result = await apiFetch<ActivityPage>(
     `/activity${query ? `?${query}` : ""}`,
   );
+  if (!result) {
+    throw new ApiError(401, "Session expired");
+  }
+  return result;
+}
+
+/**
+ * The approval sheet's data. A 404 (unknown id, or one belonging to a
+ * different wallet — indistinguishable by design) surfaces as a real
+ * `ApiError(404, ...)` via `apiFetch`'s generic error path, for the sheet
+ * to render as "this request no longer exists." A 401 can only mean the
+ * session expired mid-use.
+ */
+export async function fetchApproval(id: string): Promise<ApprovalDetail> {
+  const result = await apiFetch<ApprovalDetail>(`/approvals/${id}`);
   if (!result) {
     throw new ApiError(401, "Session expired");
   }

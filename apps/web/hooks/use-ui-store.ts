@@ -7,6 +7,8 @@ export interface ToastEntry {
   status: "approved" | "pending" | "blocked" | "error";
   title: string;
   message?: string;
+  /** Set only for a `pending` toast — links it to the real approval sheet. */
+  pendingApprovalId?: string;
 }
 
 interface UiStore {
