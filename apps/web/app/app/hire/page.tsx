@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAccount } from "wagmi";
 import { CatalogAgentRow } from "@/components/domain/hire/catalog-agent-row";
 import { HireSuccess } from "@/components/domain/hire/hire-success";
 import { Banner } from "@/components/ui/banner";
@@ -13,7 +14,9 @@ import { Stepper } from "@/components/ui/stepper";
 import { Switch } from "@/components/ui/switch";
 import { useAgents } from "@/hooks/use-agents";
 import { useCatalog } from "@/hooks/use-catalog";
-import { useHireAgent } from "@/hooks/use-hire-agent";
+import { useCreateWallet } from "@/hooks/use-create-wallet";
+import { useHireAgent, type HirePolicyDraft } from "@/hooks/use-hire-agent";
+import { useWalletAddress } from "@/hooks/use-wallet-address";
 import type { CatalogAgent } from "@/lib/api";
 import { deriveCaps, formatDollars } from "@/lib/hire";
 
@@ -58,11 +61,42 @@ export default function HireFlow() {
 
   const isLoading = hiredLoading || catalogLoading;
 
-  const { hire, isPending, isSuccess, isReverted, error: hireError } =
+  const { address: owner } = useAccount();
+  const { walletAddress, isLoading: walletAddressLoading } = useWalletAddress();
+  const {
+    createWallet,
+    walletAddress: createdWalletAddress,
+    isPending: isCreatingWallet,
+    isReverted: createWalletReverted,
+    error: createWalletError,
+  } = useCreateWallet();
+  const { hire, isPending: isHiring, isSuccess, isReverted, error: hireError } =
     useHireAgent();
   const [rejectionMessage, setRejectionMessage] = useState<string | null>(null);
+  // Set once the wallet-creation leg has been sent, so the effect below knows
+  // to auto-chain into `hireAgent` as soon as it resolves an address — and so
+  // that resolution only ever fires the hire call once.
+  const [awaitingWalletForHire, setAwaitingWalletForHire] = useState(false);
+  const pendingDraft = useRef<HirePolicyDraft | null>(null);
+  const isPending = isCreatingWallet || isHiring;
 
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!awaitingWalletForHire || !createdWalletAddress || !pendingDraft.current) {
+      return;
+    }
+    setAwaitingWalletForHire(false);
+    const draft = pendingDraft.current;
+    pendingDraft.current = null;
+    hire(createdWalletAddress, draft).catch((err) => {
+      console.error("hireAgent failed after wallet creation", err);
+      setRejectionMessage(
+        "Your wallet was created, but hiring didn't go through. Try again.",
+      );
+    });
+  }, [awaitingWalletForHire, createdWalletAddress, hire]);
+
   useEffect(() => {
     if (!isSuccess) return;
     // The indexer only ticks every 3s (see indexer.service.ts's @Interval),
@@ -87,24 +121,42 @@ export default function HireFlow() {
   }, [isSuccess, queryClient]);
 
   async function handleConfirm() {
-    if (!selectedAgent) return;
+    if (!selectedAgent || !owner) return;
+    if (walletAddressLoading) {
+      // Still resolving whether this owner already has a wallet — branching
+      // now could wrongly send `createWallet` for an owner who already has
+      // one (a real on-chain revert). The Confirm button is disabled for
+      // this case too; this guard just covers a click that beat the render.
+      return;
+    }
     setRejectionMessage(null);
+    const draft: HirePolicyDraft = {
+      sessionKey: selectedAgent.address as `0x${string}`,
+      dailyCapUsd: BigInt(dailyCapUsd) * USD8_PER_DOLLAR,
+      perTxCapUsd: BigInt(perTxCapUsd) * USD8_PER_DOLLAR,
+      cosignAboveUsd: BigInt(cosignAboveUsd) * USD8_PER_DOLLAR,
+      allowSwaps,
+      allowUnknownContracts,
+      verifiedOnly,
+    };
     try {
-      await hire({
-        sessionKey: selectedAgent.address as `0x${string}`,
-        dailyCapUsd: BigInt(dailyCapUsd) * USD8_PER_DOLLAR,
-        perTxCapUsd: BigInt(perTxCapUsd) * USD8_PER_DOLLAR,
-        cosignAboveUsd: BigInt(cosignAboveUsd) * USD8_PER_DOLLAR,
-        allowSwaps,
-        allowUnknownContracts,
-        verifiedOnly,
-      });
+      if (walletAddress) {
+        await hire(walletAddress, draft);
+      } else {
+        // First hire for this owner — no HandlerWallet yet. Create one, then
+        // let the effect above chain into `hireAgent` once it resolves.
+        pendingDraft.current = draft;
+        setAwaitingWalletForHire(true);
+        await createWallet(owner);
+      }
     } catch (err) {
       // Never surface the raw error: a wrong-signer attempt reverts at
       // simulation with a raw viem/Solidity error (contract addresses, error
       // names) — jargon this app never shows on screen. One generic message
       // covers every revert path, matching the mined-revert banner below.
-      console.error("hireAgent failed", err);
+      console.error("hire flow failed", err);
+      pendingDraft.current = null;
+      setAwaitingWalletForHire(false);
       setRejectionMessage(
         "That didn't go through. Check that this is the wallet's owner account and try again.",
       );
@@ -267,9 +319,13 @@ export default function HireFlow() {
               />
             </div>
 
-            {(isReverted || hireError || rejectionMessage) && (
+            {(isReverted ||
+              createWalletReverted ||
+              hireError ||
+              createWalletError ||
+              rejectionMessage) && (
               <Banner status="error">
-                {isReverted
+                {isReverted || createWalletReverted
                   ? "That didn't go through. Check that this is the wallet's owner account and try again."
                   : rejectionMessage ?? "Something went wrong. Try again."}
               </Banner>
@@ -279,8 +335,17 @@ export default function HireFlow() {
               <Button variant="secondary" onClick={() => setStep(1)} disabled={isPending}>
                 Back
               </Button>
-              <Button onClick={handleConfirm} disabled={isPending}>
-                {isPending ? "Confirming…" : "Confirm"}
+              <Button
+                onClick={handleConfirm}
+                disabled={isPending || walletAddressLoading}
+              >
+                {isCreatingWallet
+                  ? "Setting up your wallet…"
+                  : isHiring
+                    ? "Confirming…"
+                    : walletAddressLoading
+                      ? "Loading…"
+                      : "Confirm"}
               </Button>
             </div>
           </section>

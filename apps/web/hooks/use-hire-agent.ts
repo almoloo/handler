@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback } from "react";
-import { useChainId, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { handlerWalletAbi, resolveHandlerWalletAddress } from "@/lib/contracts";
+import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import type { Address } from "viem";
+import { handlerWalletAbi } from "@/lib/contracts";
 
 /** Tier enum from `ITrustReader.sol` — never `FLAGGED` from this flow (see
  * current-feature.md's load-bearing decision on the "verified only" toggle). */
@@ -20,14 +21,15 @@ export interface HirePolicyDraft {
 }
 
 /**
- * Wraps the owner-signed `hireAgent(sessionKey, policy)` write against the
- * dev `HandlerWallet` — the first owner-signed on-chain write from apps/web,
- * and the pattern freeze/approve/deny reuse later. `epochStart`,
+ * Wraps the owner-signed `hireAgent(sessionKey, policy)` write — the first
+ * owner-signed on-chain write from apps/web, and the pattern freeze/approve/deny
+ * reuse later. Targets whichever `HandlerWallet` address the caller passes in
+ * (the owner's factory-resolved wallet, created fresh via `use-create-wallet.ts`
+ * if this is their first hire — see `app/app/hire/page.tsx`). `epochStart`,
  * `spentThisEpoch`, and `frozen` are sent as zero/false: the contract
  * overwrites all three on `hireAgent` regardless of what's passed.
  */
 export function useHireAgent() {
-  const chainId = useChainId();
   const { writeContractAsync, data: hash, isPending, error: writeError } =
     useWriteContract();
   const {
@@ -37,10 +39,9 @@ export function useHireAgent() {
   } = useWaitForTransactionReceipt({ hash });
 
   const hire = useCallback(
-    async (draft: HirePolicyDraft) => {
-      const address = resolveHandlerWalletAddress(chainId);
+    async (walletAddress: Address, draft: HirePolicyDraft) => {
       return writeContractAsync({
-        address,
+        address: walletAddress,
         abi: handlerWalletAbi,
         functionName: "hireAgent",
         args: [
@@ -59,7 +60,7 @@ export function useHireAgent() {
         ],
       });
     },
-    [chainId, writeContractAsync],
+    [writeContractAsync],
   );
 
   return {
