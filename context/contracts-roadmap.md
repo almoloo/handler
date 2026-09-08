@@ -17,7 +17,7 @@
 | Typegen | forge build artifacts → wagmi/viem codegen in `packages/contracts` | One ABI source for web + api |
 
 **Chain: Base Sepolia** — Chainlink feeds live, ERC-8004 canonically deployed on Base, cheap and fast for retakes.
-⚠️ **1inch caveat (resolve day 1):** 1inch remains a real product feature (Riley's swap), not a targeted prize track — ETHOnline 2026's 1inch track requires deploying/using their Aqua/SwapVM contracts, which is out of scope here (see `project-overview.md`). 1inch aggregation may not serve Base Sepolia. Plan A: run the **entire demo stack** (contracts, backend indexer/agents, frontend RPC) against a **persistent anvil fork of Base mainnet** — real 1inch routing, real Chainlink feeds, real ERC-8004 registries, deterministic takes, and near-instant demo resets via `evm_snapshot`/`evm_revert`; Base Sepolia then serves only as the public "try it live" deployment. Plan B: keep the public deployment on Base Sepolia with **swaps disabled in the UI** (the `allowSwaps` toggle greyed out with an honest "not available on this network" note) and run the swap path only on the fork. **No mock router under any plan** — a swap that doesn't route through 1inch is not a swap. Decide before writing swap code; the wallet's `execute()` doesn't change either way.
+1inch is not part of the product (cut — its API key requires KYC the team won't complete; see `project-overview.md`). The public deployment is Base Sepolia, plain. `allowSwaps`/`SwapsNotAllowed()` remain as a generic policy-engine classification (swap-router-shaped calls vs. plain transfers vs. unknown contracts) — no product feature currently routes a real swap through it, so it's exercised by tests only.
 
 ---
 
@@ -100,7 +100,6 @@ Note: `ExecutionBlocked` is *emitted from a try/catch wrapper?* — No: reverts 
 - **Unit:** every custom error has a test that triggers it; epoch-roll math at boundaries (23:59:59 vs 24:00:01); price decimals for ETH + USDC paths.
 - **Fuzz:** random amounts/sequences vs caps — invariant: `spentThisEpoch ≤ dailyCapUsd` always.
 - **Invariant test:** wallet balance can only decrease via `Executed` or `Approved` paths.
-- **Fork test (if Plan A):** real 1inch calldata through `execute()` on the Base fork.
 - **The demo test:** one Foundry script that replays beats 1–4 exactly — this is the contract lane's smoke test and doubles as the backend's integration fixture.
 - Skip: formal verification, gas golf, slither beyond a single default run on day 7.
 
@@ -110,7 +109,7 @@ Note: `ExecutionBlocked` is *emitted from a try/catch wrapper?* — No: reverts 
 
 | Day | Goal | Exit criterion |
 |---|---|---|
-| 1 | Repo/Foundry setup in monorepo, chain decision (1inch Plan A/B spike), interfaces drafted | `packages/contracts` builds; plan chosen |
+| 1 | Repo/Foundry setup in monorepo, interfaces drafted | `packages/contracts` builds |
 | 2 | HandlerWallet core: policies, caps, epoch, tryExecute/execute, **events + errors frozen**; **first dev deployment** (chosen chain/anvil) with a pre-created dev wallet, address in shared config, redeployed daily as WIP evolves | Backend indexer unblocked against live logs |
 | 3 | TrustReader real ERC-8004 reads (stub + `setOverride` removed) wired into checks; **session interface frozen** | Riley (backend) unblocked; villain block (`ExecutionBlocked` via `tryExecute`) green in tests against a registry mock *in the test file only*, plus a fork test against the real registries |
 | 4 | PriceConverter real Chainlink reads + staleness (stub + `setRate` removed); propose/approve/deny queue | Co-sign loop green in tests; `StalePrice()` has a test |

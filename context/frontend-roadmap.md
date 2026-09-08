@@ -94,7 +94,6 @@ Navigation: two-tab bar (Payroll · Activity) + a floating "Hire agent" action. 
 - **Writes (all owner-signed, client-side via wagmi — the backend never holds the owner key):** create wallet (factory), hire agent, update allowance, freeze, approve pending tx (Ledger path), deny. After a write lands, the backend indexer picks it up within one tick; optional `POST /approvals/:id/approved|denied` callbacks give the UI instant feedback ahead of indexing.
 - **Trust layer:** trust tiers arrive pre-computed from the backend (`GET /agents`, `GET /agents/catalog`); the frontend renders badges only. There is no client-side fixture or fallback tier (backend roadmap §4.3).
 - **Prices:** USD framing on caps ("$50/day ≈ 0.011 ETH today") from backend `GET /prices` (Chainlink-fed, cached) — one price source across UI, backend, and what the contracts enforce.
-- **1inch:** the agent's swaps are backend/script-side, but the frontend renders the swap receipts in activity with route metadata ("via 1inch") — visible integration again.
 
 ---
 

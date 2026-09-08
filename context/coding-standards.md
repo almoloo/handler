@@ -80,7 +80,7 @@ This repo has three parts with different conventions: `apps/web` (Next.js), `app
 
 ### Testing
 - Unit tests (`*.spec.ts`) for every service; e2e tests (`test/*.e2e-spec.ts`) for every controller route, including the 401/403 path and the wallet-scoping path (a session for wallet A must not see wallet B's rows).
-- External I/O (RPC, 1inch, registries) is mocked only inside test files, never via a runtime env flag.
+- External I/O (RPC, registries) is mocked only inside test files, never via a runtime env flag.
 
 ### Naming
 - Files: kebab-case matching Nest conventions (`agents.service.ts`, `agents.controller.ts`).

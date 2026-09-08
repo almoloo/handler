@@ -20,15 +20,10 @@ const RILEY_TEST_KEY =
 
 /**
  * Exercises the real /agents routes end to end against the local Postgres
- * instance: POST /agents/:id/run's 401-without-session path and wallet-scoping
- * check (a session for wallet A must not be able to run Riley for wallet B's
- * hire); and GET /agents, /agents/catalog, /agents/:id's 401 path, empty vs.
+ * instance: GET /agents, /agents/catalog, /agents/:id's 401 path, empty vs.
  * real payroll rows, the two-wallet non-leak case, and the agent-file's
  * policy: null vs. hired shape, per context/coding-standards.md's e2e
- * requirement and current-feature.md's 5a spec. Stops short of a real
- * 1inch/chain call for /run (that boundary is exercised manually — see
- * current-feature.md step 4/6 notes) so this spec stays deterministic and
- * network-free.
+ * requirement and current-feature.md's 5a spec.
  * Requires `pnpm dev:chain` (or an equivalent local Postgres) to be running.
  */
 describe('Agents (e2e)', () => {
@@ -50,7 +45,6 @@ describe('Agents (e2e)', () => {
     process.env.SIWE_DOMAIN ??= DOMAIN;
     process.env.SIWE_CHAIN_ID ??= String(CHAIN_ID);
     process.env.RILEY_SESSION_KEY ??= RILEY_TEST_KEY;
-    process.env.ONEINCH_API_KEY ??= 'test-key';
 
     const moduleRef = await Test.createTestingModule({
       imports: [PrismaModule, AuthModule, AgentsModule],
@@ -119,53 +113,6 @@ describe('Agents (e2e)', () => {
       data: { address, chainId: CHAIN_ID, owner },
     });
   }
-
-  it('POST /agents/:id/run returns 401 with no session cookie', async () => {
-    const riley = await prisma.agent.findUniqueOrThrow({
-      where: { address: privateKeyToAccount(RILEY_TEST_KEY).address.toLowerCase() },
-    });
-    await request(app.getHttpServer())
-      .post(`/agents/${riley.id}/run`)
-      .expect(401);
-  });
-
-  it("does not let wallet A's session run Riley through wallet B's hire", async () => {
-    const riley = await prisma.agent.findUniqueOrThrow({
-      where: { address: privateKeyToAccount(RILEY_TEST_KEY).address.toLowerCase() },
-    });
-
-    const ownerB = await signIn();
-    const walletB = await createWallet(ownerB.address);
-    await prisma.policy.create({
-      data: {
-        walletAddress: walletB.address,
-        agentId: riley.id,
-        sessionKey: riley.address,
-        dailyCapUsd: 500_00000000n,
-        perTxCapUsd: 500_00000000n,
-        cosignAboveUsd: 500_00000000n,
-        minCounterpartyTier: TrustTier.FLAGGED,
-        allowSwaps: true,
-        allowUnknownContracts: false,
-      },
-    });
-
-    // Wallet A has no wallet/policy of its own — it must not reach wallet B's.
-    const ownerA = await signIn();
-    const res = await request(app.getHttpServer())
-      .post(`/agents/${riley.id}/run`)
-      .set('Cookie', ownerA.cookie)
-      .expect(404);
-    expect(res.body.message).toMatch(/no wallet/i);
-
-    // Sanity check: the run route does resolve wallet B's own policy correctly —
-    // it only fails past this point at the real 1inch network call, which this
-    // spec doesn't exercise (see the file header).
-    const resB = await request(app.getHttpServer())
-      .post(`/agents/${riley.id}/run`)
-      .set('Cookie', ownerB.cookie);
-    expect(resB.status).not.toBe(404);
-  });
 
   it('GET /agents, /agents/catalog, and /agents/:id return 401 with no session cookie', async () => {
     const riley = await prisma.agent.findUniqueOrThrow({

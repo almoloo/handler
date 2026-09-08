@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Handler — "the banking app for your AI." A consumer app that lets a person hire an AI agent, give it an on-chain spending policy (allowance, allowlist, co-sign threshold, minimum counterparty trust tier), and have those rules enforced on-chain — including rules that adapt to a counterparty agent's ERC-8004 reputation. Built for ETHGlobal ETHOnline 2026 (Sept 4–16), primarily targeting the Ledger partner track (device-backed agent key custody + human-in-the-loop co-sign), with a Chainlink Confidential Workflow stretch. 1inch swaps remain a real feature but are no longer a targeted prize track — see `context/project-overview.md`.
+Handler — "the banking app for your AI." A consumer app that lets a person hire an AI agent, give it an on-chain spending policy (allowance, allowlist, co-sign threshold, minimum counterparty trust tier), and have those rules enforced on-chain — including rules that adapt to a counterparty agent's ERC-8004 reputation. Built for ETHGlobal ETHOnline 2026 (Sept 4–16), primarily targeting the Ledger partner track (device-backed agent key custody + human-in-the-loop co-sign), with a Chainlink Confidential Workflow stretch. 1inch is not part of the product — see `context/project-overview.md`.
 
 Full product spec: `context/project-overview.md`. This project is scaffolded very early — `apps/api` and `apps/web` are currently near-stock Nest/Next.js starters; `packages/contracts` has no Solidity sources yet beyond the Foundry template.
 

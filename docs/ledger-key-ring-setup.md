@@ -1,8 +1,8 @@
-# Ledger Key Ring setup — Riley's secrets
+# Ledger Key Ring setup — Riley's secret
 
-How to move `RILEY_SESSION_KEY` and `ONEINCH_API_KEY` from plaintext Coolify
-env to Ledger Key Ring ciphertext, per `context/backend-roadmap.md` §4.2. The
-mechanism (decrypt-at-boot entrypoint) is already landed
+How to move `RILEY_SESSION_KEY` from plaintext Coolify env to Ledger Key Ring
+ciphertext, per `context/backend-roadmap.md` §4.2. The mechanism
+(decrypt-at-boot entrypoint) is already landed
 (`apps/api/docker/entrypoint.sh`, `apps/api/Dockerfile`); everything below is
 the manual, device-required part.
 
@@ -42,13 +42,13 @@ WALLET_PASS=$(security find-generic-password -a default -s ledger-wallet-cli -w)
 Confirm on the device when prompted. This creates or joins the trustchain
 this machine will use to encrypt/decrypt.
 
-## 4. Encrypt Riley's secrets
+## 4. Encrypt Riley's secret
 
-Pick real values for `RILEY_SESSION_KEY` (Riley's session-key private key)
-and `ONEINCH_API_KEY`, then:
+Pick a real value for `RILEY_SESSION_KEY` (Riley's session-key private key),
+then:
 
 ```bash
-printf '{"RILEY_SESSION_KEY":"0x...","ONEINCH_API_KEY":"..."}' | \
+printf '{"RILEY_SESSION_KEY":"0x..."}' | \
   WALLET_PASS=$(security find-generic-password -a default -s ledger-wallet-cli -w) \
   wallet-cli ring encrypt --key handler-prod -o secrets/handler-prod.enc
 ```
@@ -66,11 +66,11 @@ same scope key for `ring decrypt`.
 - Set `AGENT_SECRETS_ENC=/run/secrets/handler-prod.enc`.
 - Mount `secrets/handler-prod.enc` into the `api` container at that path
   (Coolify "file mount" / a bind volume in `docker-compose.prod.yml`).
-- **Once verified working, remove the plaintext `RILEY_SESSION_KEY` /
-  `ONEINCH_API_KEY` lines from `docker-compose.prod.yml`.** The entrypoint
-  falls back to those if `AGENT_SECRETS_ENC` isn't set, so leaving both in
-  place during the transition is safe — just don't leave both in place
-  permanently, since that defeats the point.
+- **Once verified working, remove the plaintext `RILEY_SESSION_KEY` line
+  from `docker-compose.prod.yml`.** The entrypoint falls back to it if
+  `AGENT_SECRETS_ENC` isn't set, so leaving both in place during the
+  transition is safe — just don't leave both in place permanently, since
+  that defeats the point.
 
 ## 6. Open question: enrolling the VPS itself (day-6 spike)
 

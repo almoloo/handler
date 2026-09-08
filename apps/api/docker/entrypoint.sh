@@ -3,10 +3,10 @@
 # context/backend-roadmap.md §4.2 and docs/ledger-key-ring-setup.md).
 #
 # If AGENT_SECRETS_ENC points at a Key Ring ciphertext file, decrypt it and
-# export the secrets it contains (RILEY_SESSION_KEY, ONEINCH_API_KEY) into
-# this process's env before starting the app. If it isn't set, or the file
-# isn't there, fall straight through — RILEY_SESSION_KEY/ONEINCH_API_KEY are
-# then expected to already be in the environment, exactly as today.
+# export the secret it contains (RILEY_SESSION_KEY) into this process's env
+# before starting the app. If it isn't set, or the file isn't there, fall
+# straight through — RILEY_SESSION_KEY is then expected to already be in the
+# environment, exactly as today.
 #
 # WALLET_PASS must come from a secret store (Coolify env, keychain, etc) —
 # never a literal value in this script or in a command someone types.

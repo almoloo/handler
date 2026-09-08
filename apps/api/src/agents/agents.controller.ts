@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { SessionAuthGuard } from '../auth/session-auth.guard.js';
 import { PoliciesService } from '../policies/policies.service.js';
@@ -34,11 +34,5 @@ export class AgentsController {
   async agentFile(@Param('id') id: string, @Req() req: Request) {
     const walletAddress = await this.agents.walletAddressForOwner(req.address!);
     return this.policies.agentFile(walletAddress, id);
-  }
-
-  @Post(':id/run')
-  @UseGuards(SessionAuthGuard)
-  run(@Param('id') id: string, @Req() req: Request) {
-    return this.agents.run(req.address!, id);
   }
 }
