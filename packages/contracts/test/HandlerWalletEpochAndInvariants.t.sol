@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {HandlerWallet} from "../src/HandlerWallet.sol";
 import {MockTrustReader} from "./mocks/MockTrustReader.sol";
 import {PriceConverter} from "../src/PriceConverter.sol";
+import {MockV3Aggregator} from "./mocks/MockV3Aggregator.sol";
 import {Tier} from "../src/interfaces/ITrustReader.sol";
 
 contract HandlerWalletEpochAndInvariantsTest is Test {
@@ -23,7 +24,10 @@ contract HandlerWalletEpochAndInvariantsTest is Test {
         trustReader = new MockTrustReader();
         priceConverter = new PriceConverter(owner);
         wallet = new HandlerWallet(owner, trustReader, priceConverter);
-        priceConverter.setRate(address(0), ETH_USD8, 18);
+        // maxStaleness is unbounded here: this file tests wallet policy logic (including
+        // vm.warp-heavy epoch/invariant fuzzing), not PriceConverter's own staleness behavior
+        // (that's PriceConverter.t.sol's job).
+        priceConverter.setFeed(address(0), new MockV3Aggregator(8, int256(uint256(ETH_USD8))), 18, type(uint256).max);
         trustReader.setTier(recipient, Tier.NEW);
 
         wallet.hireAgent(

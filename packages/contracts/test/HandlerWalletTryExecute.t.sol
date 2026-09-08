@@ -6,6 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {HandlerWallet} from "../src/HandlerWallet.sol";
 import {MockTrustReader} from "./mocks/MockTrustReader.sol";
 import {PriceConverter} from "../src/PriceConverter.sol";
+import {MockV3Aggregator} from "./mocks/MockV3Aggregator.sol";
 import {Tier} from "../src/interfaces/ITrustReader.sol";
 
 contract HandlerWalletTryExecuteTest is Test {
@@ -25,7 +26,10 @@ contract HandlerWalletTryExecuteTest is Test {
         trustReader = new MockTrustReader();
         priceConverter = new PriceConverter(owner);
         wallet = new HandlerWallet(owner, trustReader, priceConverter);
-        priceConverter.setRate(address(0), ETH_USD8, 18);
+        // maxStaleness is unbounded here: this file tests wallet policy logic, not
+        // PriceConverter's own staleness behavior (that's PriceConverter.t.sol's job), and
+        // some of these tests vm.warp forward.
+        priceConverter.setFeed(address(0), new MockV3Aggregator(8, int256(uint256(ETH_USD8))), 18, type(uint256).max);
         vm.stopPrank();
 
         vm.deal(address(wallet), 100 ether);
