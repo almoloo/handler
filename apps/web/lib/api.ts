@@ -12,7 +12,37 @@ export interface LogoutResponse {
   ok: true;
 }
 
-class ApiError extends Error {
+/** Trust tiers as the API returns them (mirrors the backend's `TrustTier`). */
+export type TrustTier = "VERIFIED" | "NEW" | "FLAGGED";
+
+/**
+ * One row of `GET /agents` — an agent this wallet has hired, with its policy.
+ * Mirrors `PayrollAgent` in apps/api's policies.service.ts; there is no shared
+ * type package between the two apps yet, so this is hand-kept in sync.
+ * All `*Usd` fields are 8-decimal fixed-point integers as decimal strings —
+ * parse with BigInt, never parseFloat.
+ */
+export interface PayrollAgent {
+  policyId: string;
+  sessionKey: string;
+  agentId: string;
+  name: string;
+  avatar: string | null;
+  trustTier: TrustTier;
+  trustSummary: string;
+  dailyCapUsd: string;
+  perTxCapUsd: string;
+  cosignAboveUsd: string;
+  spentTodayUsd: string;
+  frozen: boolean;
+  allowSwaps: boolean;
+  allowUnknownContracts: boolean;
+  policySentences: string[];
+  hiredAt: string;
+  pendingApprovalCount: number;
+}
+
+export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
@@ -20,6 +50,12 @@ class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+/** True for the one error every `/app` screen handles the same way: the
+ * session expired mid-use, so the app must re-gate to sign-in. */
+export function isUnauthorized(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
 }
 
 /**
@@ -88,4 +124,18 @@ export async function fetchSession(): Promise<SessionResponse | null> {
 
 export async function logout(): Promise<LogoutResponse | null> {
   return apiFetch<LogoutResponse>("/auth/logout", { method: "POST" });
+}
+
+/**
+ * The signed-in wallet's payroll. `[]` means this owner has hired no one yet —
+ * a real empty state, not an error. A 401 can only mean the session expired
+ * mid-session (the `/app` layout gates on it), so it throws rather than
+ * masquerading as an empty payroll.
+ */
+export async function fetchAgents(): Promise<PayrollAgent[]> {
+  const result = await apiFetch<PayrollAgent[]>("/agents");
+  if (!result) {
+    throw new ApiError(401, "Session expired");
+  }
+  return result;
 }

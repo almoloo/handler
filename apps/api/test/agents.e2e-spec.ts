@@ -10,7 +10,10 @@ import { AgentsModule } from '../src/agents/agents.module.js';
 import { AuthModule } from '../src/auth/auth.module.js';
 import { PrismaModule } from '../src/prisma/prisma.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { TrustTier } from '../src/generated/prisma/enums.js';
+import {
+  ApprovalStatus,
+  TrustTier,
+} from '../src/generated/prisma/enums.js';
 
 const RILEY_TEST_KEY =
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
@@ -61,6 +64,9 @@ describe('Agents (e2e)', () => {
   });
 
   afterAll(async () => {
+    await prisma.pendingApproval.deleteMany({
+      where: { walletAddress: { in: createdWalletAddresses } },
+    });
     await prisma.policy.deleteMany({
       where: { walletAddress: { in: createdWalletAddresses } },
     });
@@ -225,6 +231,66 @@ describe('Agents (e2e)', () => {
       .set('Cookie', ownerWithoutPolicy.cookie)
       .expect(200);
     expect(resWithoutPolicy.body).toEqual([]);
+  });
+
+  it('GET /agents counts only still-open approvals in pendingApprovalCount', async () => {
+    const riley = await prisma.agent.findUniqueOrThrow({
+      where: { address: privateKeyToAccount(RILEY_TEST_KEY).address.toLowerCase() },
+    });
+
+    const owner = await signIn();
+    const wallet = await createWallet(owner.address);
+    const policy = await prisma.policy.create({
+      data: {
+        walletAddress: wallet.address,
+        agentId: riley.id,
+        sessionKey: riley.address,
+        dailyCapUsd: 500_00000000n,
+        perTxCapUsd: 150_00000000n,
+        cosignAboveUsd: 300_00000000n,
+        minCounterpartyTier: TrustTier.NEW,
+        allowSwaps: true,
+        allowUnknownContracts: false,
+      },
+    });
+
+    async function createApproval(id: string, status: ApprovalStatus) {
+      await prisma.pendingApproval.create({
+        data: {
+          id,
+          walletAddress: wallet.address,
+          policyId: policy.id,
+          agentId: riley.id,
+          amountUsd: 400_00000000n,
+          target: riley.address,
+          calldata: '0x',
+          summary: 'Riley wants to pay Atlas $400.',
+          status,
+          proposedTxHash: `0x${'1'.repeat(64)}`,
+          proposedBlock: 1n,
+          proposedAt: new Date(),
+        },
+      });
+    }
+
+    // A resolved approval must not keep the row flagged: the PENDING
+    // ActivityEvent is never removed when an approval resolves, so this count
+    // reads PendingApproval.status instead.
+    await createApproval(`0x${'a'.repeat(64)}`, ApprovalStatus.APPROVED);
+
+    const resolvedOnly = await request(app.getHttpServer())
+      .get('/agents')
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(resolvedOnly.body[0].pendingApprovalCount).toBe(0);
+
+    await createApproval(`0x${'b'.repeat(64)}`, ApprovalStatus.PENDING);
+
+    const withOpen = await request(app.getHttpServer())
+      .get('/agents')
+      .set('Cookie', owner.cookie)
+      .expect(200);
+    expect(withOpen.body[0].pendingApprovalCount).toBe(1);
   });
 
   it('GET /agents/catalog lists Riley with a trust tier', async () => {

@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { AgentKind, TrustTier } from '../generated/prisma/enums.js';
+import {
+  AgentKind,
+  ApprovalStatus,
+  TrustTier,
+} from '../generated/prisma/enums.js';
 import { policySentences, type PolicyForSentences } from './policy-sentences.js';
 
 /** USD-8 fixed-point fields as decimal strings, matching every other API
@@ -23,6 +27,11 @@ export type PayrollAgent = {
   allowUnknownContracts: boolean;
   policySentences: string[];
   hiredAt: string;
+  /** Open (still `PENDING`) co-sign requests for this policy — drives the
+   * payroll row's "needs your approval" status. Derived from
+   * `PendingApproval.status`, never from the `PENDING` ActivityEvent, which
+   * stays in the feed forever after the approval resolves. */
+  pendingApprovalCount: number;
 };
 
 export type CatalogAgent = {
@@ -35,9 +44,16 @@ export type CatalogAgent = {
   trustSummary: string;
 };
 
+/** `pendingApprovalCount` is payroll-row-only: the agent file renders its own
+ * approval state from `recentActivity`, so it isn't part of this shape. */
 export type AgentFilePolicy = Omit<
   PayrollAgent,
-  'name' | 'avatar' | 'agentId' | 'trustTier' | 'trustSummary'
+  | 'name'
+  | 'avatar'
+  | 'agentId'
+  | 'trustTier'
+  | 'trustSummary'
+  | 'pendingApprovalCount'
 >;
 
 export type AgentFile = {
@@ -121,6 +137,16 @@ export class PoliciesService {
       orderBy: { hiredAt: 'asc' },
     });
 
+    // One grouped query for the whole list rather than a count per row.
+    const openApprovals = await this.prisma.pendingApproval.groupBy({
+      by: ['policyId'],
+      where: { walletAddress, status: ApprovalStatus.PENDING },
+      _count: { _all: true },
+    });
+    const openByPolicy = new Map(
+      openApprovals.map((group) => [group.policyId, group._count._all]),
+    );
+
     return policies.map((policy) => ({
       ...this.toAgentFilePolicy(policy),
       agentId: policy.agentId,
@@ -128,6 +154,7 @@ export class PoliciesService {
       avatar: policy.agent.avatar,
       trustTier: policy.agent.trustTier,
       trustSummary: policy.agent.trustSummary,
+      pendingApprovalCount: openByPolicy.get(policy.id) ?? 0,
     }));
   }
 
