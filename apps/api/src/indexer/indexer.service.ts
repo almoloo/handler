@@ -10,6 +10,7 @@ import {
   ActivitySource,
   AgentKind,
   ApprovalStatus,
+  IntentStatus,
   ResolutionSource,
 } from '../generated/prisma/enums.js';
 import { truncateAddress } from '../common/format.js';
@@ -201,6 +202,26 @@ export class IndexerService {
       create: data,
       update: data,
     });
+  }
+
+  /** Looks up the `Intent` an agent-runtime action (backend-roadmap §4.2's
+   * "intent row first" rule) wrote before submitting this tx, if any —
+   * chain-only activity (owner-signed hires, freezes, approvals) has no
+   * matching `Intent` and this is a no-op. When found, resolves it to
+   * `resolvedStatus` and stamps `settledAt`, and returns its id so the caller
+   * can set `ActivityEvent.intentId`. */
+  private async resolveIntentForTx(
+    db: Db,
+    txHash: string,
+    resolvedStatus: typeof IntentStatus.CONFIRMED | typeof IntentStatus.BLOCKED,
+  ): Promise<string | null> {
+    const intent = await db.intent.findUnique({ where: { txHash } });
+    if (!intent) return null;
+    await db.intent.update({
+      where: { id: intent.id },
+      data: { status: resolvedStatus, settledAt: new Date() },
+    });
+    return intent.id;
   }
 
   private async getOrCreateHiredAgent(db: Db, sessionKey: string) {
@@ -487,6 +508,12 @@ export class IndexerService {
           : transferSummary(agent.name, counterparty.name, usdValue);
     }
 
+    const intentId = await this.resolveIntentForTx(
+      db,
+      log.transactionHash,
+      IntentStatus.CONFIRMED,
+    );
+
     await this.upsertActivityEvent(db, {
       walletAddress,
       policyId,
@@ -502,6 +529,7 @@ export class IndexerService {
       blockNumber: log.blockNumber,
       blockTimestamp,
       summary,
+      intentId,
     });
   }
 
@@ -524,6 +552,12 @@ export class IndexerService {
       blockTimestamps,
     );
 
+    const intentId = await this.resolveIntentForTx(
+      db,
+      log.transactionHash,
+      IntentStatus.BLOCKED,
+    );
+
     await this.upsertActivityEvent(db, {
       walletAddress,
       policyId,
@@ -537,6 +571,7 @@ export class IndexerService {
       blockNumber: log.blockNumber,
       blockTimestamp,
       summary: blockedSummary(agent.name, blockReason),
+      intentId,
     });
   }
 

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
+import { ChainModule } from '../chain/chain.module.js';
 import { PoliciesModule } from '../policies/policies.module.js';
 import { AgentsController } from './agents.controller.js';
 import { AgentsService } from './agents.service.js';
@@ -13,7 +14,7 @@ import { AgentsService } from './agents.service.js';
  * (subcontractor, villain) follows this same shape.
  */
 @Module({
-  imports: [AuthModule, PoliciesModule],
+  imports: [AuthModule, ChainModule, PoliciesModule],
   controllers: [AgentsController],
   providers: [AgentsService],
   exports: [AgentsService],

@@ -45,6 +45,7 @@ describe('Agents (e2e)', () => {
     process.env.SIWE_DOMAIN ??= DOMAIN;
     process.env.SIWE_CHAIN_ID ??= String(CHAIN_ID);
     process.env.RILEY_SESSION_KEY ??= RILEY_TEST_KEY;
+    process.env.RILEY_PAYMENT_WEI ??= '1000000000000000';
 
     const moduleRef = await Test.createTestingModule({
       imports: [PrismaModule, AuthModule, AgentsModule],

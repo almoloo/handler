@@ -54,6 +54,10 @@ type MockPrisma = {
     update: ReturnType<typeof vi.fn>;
   };
   activityEvent: { upsert: ReturnType<typeof vi.fn> };
+  intent: {
+    findUnique: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+  };
   $transaction: (arg: unknown) => Promise<unknown>;
 };
 
@@ -78,6 +82,10 @@ function makeService(overrides: {
   existingCounterparty?: { id: string; name: string } | null;
   existingPolicy?: { id: string; sessionKey?: string } | null;
   existingPendingApproval?: Record<string, unknown> | null;
+  /** The `Intent` row `resolveIntentForTx` should find for the tx hash under test, if any
+   * (backend-roadmap §4.2's "intent row first" rule) — `undefined` (the default) means no
+   * agent-runtime `Intent` exists, matching plain chain-only activity. */
+  existingIntent?: { id: string } | null;
   pendingApprovalTuple?: readonly [
     string,
     string,
@@ -237,6 +245,14 @@ function makeService(overrides: {
     },
     activityEvent: {
       upsert: vi.fn().mockResolvedValue(undefined),
+    },
+    intent: {
+      findUnique: vi
+        .fn()
+        .mockResolvedValue(
+          overrides.existingIntent === undefined ? null : overrides.existingIntent,
+        ),
+      update: vi.fn().mockResolvedValue(undefined),
     },
     // Interactive transactions in these tests just run the callback against this same mock
     // client — real atomicity isn't what's under test here (that's Prisma's own guarantee).
@@ -882,6 +898,76 @@ describe('IndexerService (private) handleLog', () => {
           type: 'BLOCKED',
           blockReason: 'COUNTERPARTY_BELOW_TIER',
         }),
+      }),
+    );
+  });
+
+  it('Executed: with no matching Intent, indexes exactly as before (intentId null, no Intent update)', async () => {
+    const { service, prisma } = makeService({ existingIntent: null });
+
+    await callHandleLog(service, prisma, {
+      eventName: 'Executed',
+      args: { sessionKey: SESSION_KEY, target: TARGET, usdValue: 20_00000000n, kind: 0 },
+      blockNumber: 8n,
+      logIndex: 0,
+      transactionHash: '0xtx10',
+    });
+
+    expect(prisma.intent.findUnique).toHaveBeenCalledWith({
+      where: { txHash: '0xtx10' },
+    });
+    expect(prisma.intent.update).not.toHaveBeenCalled();
+    expect(prisma.activityEvent.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ intentId: null }),
+      }),
+    );
+  });
+
+  it('Executed: with a matching Intent, resolves it to CONFIRMED and stamps ActivityEvent.intentId', async () => {
+    const { service, prisma } = makeService({
+      existingIntent: { id: 'intent_1' },
+    });
+
+    await callHandleLog(service, prisma, {
+      eventName: 'Executed',
+      args: { sessionKey: SESSION_KEY, target: TARGET, usdValue: 20_00000000n, kind: 0 },
+      blockNumber: 8n,
+      logIndex: 0,
+      transactionHash: '0xtx11',
+    });
+
+    expect(prisma.intent.update).toHaveBeenCalledWith({
+      where: { id: 'intent_1' },
+      data: { status: 'CONFIRMED', settledAt: expect.any(Date) },
+    });
+    expect(prisma.activityEvent.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ intentId: 'intent_1' }),
+      }),
+    );
+  });
+
+  it('ExecutionBlocked: with a matching Intent, resolves it to BLOCKED and stamps ActivityEvent.intentId', async () => {
+    const { service, prisma } = makeService({
+      existingIntent: { id: 'intent_2' },
+    });
+
+    await callHandleLog(service, prisma, {
+      eventName: 'ExecutionBlocked',
+      args: { sessionKey: SESSION_KEY, reason: 3, usdValue: 0n },
+      blockNumber: 9n,
+      logIndex: 0,
+      transactionHash: '0xtx12',
+    });
+
+    expect(prisma.intent.update).toHaveBeenCalledWith({
+      where: { id: 'intent_2' },
+      data: { status: 'BLOCKED', settledAt: expect.any(Date) },
+    });
+    expect(prisma.activityEvent.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ intentId: 'intent_2' }),
       }),
     );
   });
