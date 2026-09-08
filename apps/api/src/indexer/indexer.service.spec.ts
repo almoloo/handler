@@ -20,6 +20,8 @@ type MockChain = {
   handlerWalletAddress: string;
   chainId: number;
   handlerWalletAbi: unknown[];
+  handlerWalletFactoryAddress: string | null;
+  handlerWalletFactoryAbi: unknown[];
   publicClient: {
     getBlockNumber: ReturnType<typeof vi.fn>;
     getLogs: ReturnType<typeof vi.fn>;
@@ -36,7 +38,7 @@ type MockPrisma = {
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
   };
-  wallet: { upsert: ReturnType<typeof vi.fn> };
+  wallet: { upsert: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
   agent: {
     upsert: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
@@ -57,9 +59,22 @@ type MockPrisma = {
 
 function makeService(overrides: {
   cursor?: { blockNumber: bigint } | null;
+  /** Per-key cursor lookups (e.g. the "factory" stream vs. a `wallet:<address>` stream) for
+   * tests that need more than one distinct cursor value in the same run. Falls back to
+   * `cursor` for any key not listed here. */
+  cursorsByKey?: Record<string, { blockNumber: bigint } | null>;
+  factoryAddress?: string | null;
+  /** Addresses `tick()`'s `db.wallet.findMany()` loop should sync. Defaults to just the
+   * pre-seeded dev wallet — the realistic steady state for every test here, since
+   * ensureDevWalletBootstrapped() either just created that row or found it already there. */
+  knownWallets?: string[];
   latestBlock?: bigint;
   owner?: string;
   logs?: unknown[];
+  /** Per-wallet-address log override, for tests with more than one known wallet. Falls
+   * back to `logs` for any address not listed. */
+  logsByAddress?: Record<string, unknown[]>;
+  factoryLogs?: unknown[];
   existingCounterparty?: { id: string; name: string } | null;
   existingPolicy?: { id: string; sessionKey?: string } | null;
   existingPendingApproval?: Record<string, unknown> | null;
@@ -96,6 +111,11 @@ function makeService(overrides: {
     false,
   ] as const;
 
+  const factoryAddress =
+    overrides.factoryAddress === undefined
+      ? '0xFAC7000000000000000000000000000000ca7e'
+      : overrides.factoryAddress;
+
   const chain: MockChain = {
     handlerWalletAddress: '0xAbCd000000000000000000000000000000dEaD',
     chainId: 31337,
@@ -104,9 +124,17 @@ function makeService(overrides: {
     // `tick()`-level test needs one. The per-event handler tests call the private handleLog()
     // directly, bypassing parseEventLogs entirely.
     handlerWalletAbi: [],
+    handlerWalletFactoryAddress: factoryAddress,
+    handlerWalletFactoryAbi: [],
     publicClient: {
       getBlockNumber: vi.fn().mockResolvedValue(overrides.latestBlock ?? 5n),
-      getLogs: vi.fn().mockResolvedValue(overrides.logs ?? []),
+      getLogs: vi.fn().mockImplementation(({ address }: { address: string }) => {
+        if (address === factoryAddress) return Promise.resolve(overrides.factoryLogs ?? []);
+        const byAddress = overrides.logsByAddress ?? {};
+        return Promise.resolve(
+          address in byAddress ? byAddress[address] : (overrides.logs ?? []),
+        );
+      }),
       getBlock: vi.fn().mockResolvedValue({ timestamp: 1_700_000_000n }),
       readContract: vi.fn().mockImplementation(({ functionName }) => {
         if (functionName === 'owner') {
@@ -137,12 +165,24 @@ function makeService(overrides: {
 
   const prisma: MockPrisma = {
     indexerCursor: {
-      findUnique: vi.fn().mockResolvedValue(overrides.cursor ?? null),
+      findUnique: vi.fn().mockImplementation(({ where }: { where: { key: string } }) => {
+        const byKey = overrides.cursorsByKey ?? {};
+        return Promise.resolve(
+          where.key in byKey ? byKey[where.key] : (overrides.cursor ?? null),
+        );
+      }),
       create: vi.fn().mockResolvedValue(undefined),
       update: vi.fn().mockResolvedValue(undefined),
     },
     wallet: {
       upsert: vi.fn().mockResolvedValue(undefined),
+      findMany: vi
+        .fn()
+        .mockResolvedValue(
+          (
+            overrides.knownWallets ?? [chain.handlerWalletAddress.toLowerCase()]
+          ).map((address) => ({ address })),
+        ),
     },
     agent: {
       upsert: vi
@@ -236,9 +276,121 @@ function callHandleLog(service: IndexerService, prisma: unknown, log: unknown) {
   );
 }
 
+/** Like callHandleLog, but for a wallet address other than the fixed WALLET constant —
+ * used to prove chain reads are scoped to the wallet actually being processed, not the
+ * ChainService singleton's static handlerWalletAddress. */
+function callHandleLogForWallet(
+  service: IndexerService,
+  prisma: unknown,
+  log: unknown,
+  walletAddress: string,
+) {
+  return (service as unknown as HandleLogCapable).handleLog(
+    prisma,
+    log,
+    walletAddress,
+    new Map<bigint, Date>(),
+  );
+}
+
 describe('cursorKeyFor', () => {
   it('lowercases the address', () => {
     expect(cursorKeyFor('0xABCD')).toBe('wallet:0xabcd');
+  });
+});
+
+/** Structural view of IndexerService exposing just its private syncFactory(). */
+type SyncFactoryCapable = { syncFactory: () => Promise<void> };
+
+function callSyncFactory(service: IndexerService) {
+  return (service as unknown as SyncFactoryCapable).syncFactory();
+}
+
+const NEW_WALLET_OWNER = '0x4444444444444444444444444444444444dddd';
+const NEW_WALLET_ADDRESS = '0x5555555555555555555555555555555555eeee';
+
+describe('IndexerService (private) syncFactory', () => {
+  it('no-ops when no factory is configured for this chain', async () => {
+    const { service, chain, prisma } = makeService({ factoryAddress: null });
+
+    await callSyncFactory(service);
+
+    expect(chain.publicClient.getLogs).not.toHaveBeenCalled();
+    expect(prisma.indexerCursor.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('bootstraps the factory cursor at block 0 when none exists yet, without upserting a Wallet', async () => {
+    const { service, prisma } = makeService({
+      cursorsByKey: { factory: null },
+    });
+
+    await callSyncFactory(service);
+
+    expect(prisma.indexerCursor.create).toHaveBeenCalledWith({
+      data: { key: 'factory', blockNumber: 0n },
+    });
+    expect(prisma.wallet.upsert).not.toHaveBeenCalled();
+  });
+
+  it('a WalletCreated log upserts a non-demo Wallet row and creates that wallet\'s own cursor', async () => {
+    const { service, prisma } = makeService({
+      cursorsByKey: { factory: { blockNumber: 5n }, 'wallet:0x5555555555555555555555555555555555eeee': null },
+      latestBlock: 8n,
+      factoryLogs: [
+        {
+          eventName: 'WalletCreated',
+          args: { owner: NEW_WALLET_OWNER, wallet: NEW_WALLET_ADDRESS },
+          blockNumber: 7n,
+          logIndex: 0,
+          transactionHash: '0xtxfactory1',
+        },
+      ],
+    });
+
+    await callSyncFactory(service);
+
+    expect(prisma.wallet.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { address: NEW_WALLET_ADDRESS },
+        create: expect.objectContaining({
+          address: NEW_WALLET_ADDRESS,
+          owner: NEW_WALLET_OWNER,
+          isDemo: false,
+          createdTxHash: '0xtxfactory1',
+          createdBlock: 7n,
+        }),
+      }),
+    );
+    expect(prisma.indexerCursor.create).toHaveBeenCalledWith({
+      data: { key: cursorKeyFor(NEW_WALLET_ADDRESS), blockNumber: 6n },
+    });
+    expect(prisma.indexerCursor.update).toHaveBeenCalledWith({
+      where: { key: 'factory' },
+      data: { blockNumber: 8n },
+    });
+  });
+
+  it('does not recreate a wallet cursor that already exists', async () => {
+    const { service, prisma } = makeService({
+      cursorsByKey: {
+        factory: { blockNumber: 5n },
+        [cursorKeyFor(NEW_WALLET_ADDRESS)]: { blockNumber: 9n },
+      },
+      latestBlock: 8n,
+      factoryLogs: [
+        {
+          eventName: 'WalletCreated',
+          args: { owner: NEW_WALLET_OWNER, wallet: NEW_WALLET_ADDRESS },
+          blockNumber: 7n,
+          logIndex: 0,
+          transactionHash: '0xtxfactory1',
+        },
+      ],
+    });
+
+    await callSyncFactory(service);
+
+    expect(prisma.indexerCursor.create).not.toHaveBeenCalled();
   });
 });
 
@@ -363,8 +515,11 @@ describe('IndexerService.tick', () => {
     );
   });
 
-  it('does not advance the cursor when a step throws mid-batch', async () => {
-    const { service, prisma } = makeService({
+  it('does not advance the wallet cursor when a step throws mid-batch', async () => {
+    // The factory stream is independent and has nothing to process here (no factoryLogs),
+    // so its own cursor still safely advances in the same tick — only the wallet whose
+    // batch actually failed must not have its cursor moved.
+    const { service, chain, prisma } = makeService({
       cursor: { blockNumber: 2n },
       latestBlock: 3n,
       logs: [HIRED_LOG],
@@ -373,7 +528,11 @@ describe('IndexerService.tick', () => {
 
     await service.tick();
 
-    expect(prisma.indexerCursor.update).not.toHaveBeenCalled();
+    expect(prisma.indexerCursor.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { key: cursorKeyFor(chain.handlerWalletAddress) },
+      }),
+    );
   });
 
   it('ignores a concurrent tick() while one is already running', async () => {
@@ -395,7 +554,99 @@ describe('IndexerService.tick', () => {
     resolveCursorLookup({ blockNumber: 2n });
     await Promise.all([firstTick, secondTick]);
 
-    expect(chain.publicClient.getBlockNumber).toHaveBeenCalledTimes(1);
+    // One full successful tick calls getBlockNumber twice — once for the factory stream,
+    // once for the one known wallet. If the second, concurrent tick() call weren't a true
+    // no-op, this would be 4.
+    expect(chain.publicClient.getBlockNumber).toHaveBeenCalledTimes(2);
+  });
+
+  it('syncs two known wallets independently, each from its own cursor and log range', async () => {
+    const walletA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const walletB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const hiredForA = {
+      eventName: 'AgentHired',
+      args: { sessionKey: '0x1111111111111111111111111111111111aaaa' },
+      blockNumber: 3n,
+      logIndex: 0,
+      transactionHash: '0xtx-a',
+    };
+    const { service, prisma } = makeService({
+      knownWallets: [walletA, walletB],
+      latestBlock: 5n,
+      cursorsByKey: {
+        factory: { blockNumber: 5n }, // nothing new on the factory stream this tick
+        [cursorKeyFor(walletA)]: { blockNumber: 2n },
+        [cursorKeyFor(walletB)]: { blockNumber: 5n }, // already caught up — no new blocks
+      },
+      logsByAddress: {
+        [walletA]: [hiredForA],
+        [walletB]: [hiredForA], // would also match if B's range were (wrongly) scanned
+      },
+    });
+
+    await service.tick();
+
+    // Only A's cursor was behind, so only A should have produced an ActivityEvent and
+    // advanced its own cursor — B stays untouched despite sharing the same log fixture.
+    expect(prisma.activityEvent.upsert).toHaveBeenCalledTimes(1);
+    expect(prisma.indexerCursor.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { key: cursorKeyFor(walletA) },
+        data: { blockNumber: 5n },
+      }),
+    );
+    expect(prisma.indexerCursor.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ where: { key: cursorKeyFor(walletB) } }),
+    );
+  });
+
+  it('only syncs wallets for the currently configured chain', async () => {
+    const { service, chain, prisma } = makeService({});
+
+    await service.tick();
+
+    expect(prisma.wallet.findMany).toHaveBeenCalledWith({
+      where: { chainId: chain.chainId },
+    });
+  });
+
+  it("one wallet's sync failure does not stop the next wallet from syncing", async () => {
+    const walletA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const walletB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const hired = {
+      eventName: 'AgentHired',
+      args: { sessionKey: '0x1111111111111111111111111111111111aaaa' },
+      blockNumber: 3n,
+      logIndex: 0,
+      transactionHash: '0xtx-a',
+    };
+    const { service, prisma } = makeService({
+      knownWallets: [walletA, walletB],
+      latestBlock: 5n,
+      cursorsByKey: {
+        factory: { blockNumber: 5n },
+        [cursorKeyFor(walletA)]: { blockNumber: 2n },
+        [cursorKeyFor(walletB)]: { blockNumber: 2n },
+      },
+      logsByAddress: {
+        [walletA]: [hired],
+        [walletB]: [hired],
+      },
+    });
+    // Wallet A (processed first) fails; wallet B (processed second) must not be affected.
+    prisma.policy.upsert.mockRejectedValueOnce(new Error('rpc hiccup for wallet A'));
+
+    await service.tick();
+
+    expect(prisma.indexerCursor.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ where: { key: cursorKeyFor(walletA) } }),
+    );
+    expect(prisma.indexerCursor.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { key: cursorKeyFor(walletB) },
+        data: { blockNumber: 5n },
+      }),
+    );
   });
 });
 
@@ -446,6 +697,32 @@ describe('IndexerService (private) handleLog', () => {
           logIndex: 1,
           blockNumber: 3n,
         }),
+      }),
+    );
+  });
+
+  it('AgentHired: reads the policy mirror from the wallet actually being processed, not chain.handlerWalletAddress', async () => {
+    const { service, chain, prisma } = makeService({});
+    const otherWallet = '0x2222222222222222222222222222222222bbbb';
+    expect(otherWallet).not.toBe(chain.handlerWalletAddress.toLowerCase());
+
+    await callHandleLogForWallet(
+      service,
+      prisma,
+      {
+        eventName: 'AgentHired',
+        args: { sessionKey: SESSION_KEY },
+        blockNumber: 3n,
+        logIndex: 1,
+        transactionHash: '0xtx1',
+      },
+      otherWallet,
+    );
+
+    expect(chain.publicClient.readContract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: otherWallet,
+        functionName: 'policies',
       }),
     );
   });
@@ -646,6 +923,38 @@ describe('IndexerService (private) handleLog', () => {
           type: 'PENDING',
           pendingApprovalId: APPROVAL_ID,
         }),
+      }),
+    );
+  });
+
+  it('Proposed: reads pendingApprovals from the wallet actually being processed, not chain.handlerWalletAddress', async () => {
+    const { service, chain, prisma } = makeService({});
+    const otherWallet = '0x2222222222222222222222222222222222bbbb';
+    expect(otherWallet).not.toBe(chain.handlerWalletAddress.toLowerCase());
+
+    await callHandleLogForWallet(
+      service,
+      prisma,
+      {
+        eventName: 'Proposed',
+        args: {
+          id: APPROVAL_ID,
+          sessionKey: SESSION_KEY,
+          target: TARGET2,
+          value: 20000000000000000n,
+          usdValue: 20_00000000n,
+        },
+        blockNumber: 10n,
+        logIndex: 0,
+        transactionHash: '0xtx10',
+      },
+      otherWallet,
+    );
+
+    expect(chain.publicClient.readContract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: otherWallet,
+        functionName: 'pendingApprovals',
       }),
     );
   });

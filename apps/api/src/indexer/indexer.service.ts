@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { parseEventLogs, type Address } from 'viem';
-import { handlerWalletAbi } from '@handler/contracts';
+import { handlerWalletAbi, handlerWalletFactoryAbi } from '@handler/contracts';
 import { ChainService } from '../chain/chain.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { Prisma } from '../generated/prisma/client.js';
@@ -37,8 +37,16 @@ export function cursorKeyFor(walletAddress: string): string {
   return `wallet:${walletAddress.toLowerCase()}`;
 }
 
+/** The factory's own WalletCreated log stream gets one fixed cursor row, distinct from
+ * every per-wallet `wallet:<address>` stream. */
+const FACTORY_CURSOR_KEY = 'factory';
+
 type DecodedLog = ReturnType<
   typeof parseEventLogs<typeof handlerWalletAbi>
+>[number];
+
+type DecodedFactoryLog = ReturnType<
+  typeof parseEventLogs<typeof handlerWalletFactoryAbi>
 >[number];
 
 /** Either the top-level client or an interactive-transaction client — same model API surface. */
@@ -72,7 +80,26 @@ export class IndexerService {
     if (this.running) return;
     this.running = true;
     try {
-      await this.syncWallet();
+      await this.ensureDevWalletBootstrapped();
+      await this.syncFactory();
+      // Scoped to this chain — a Wallet row left over from a previous CHAIN_ID (e.g.
+      // switching between local anvil and Base Sepolia, per current-feature.md history)
+      // must never be synced against the wrong chain's RPC endpoint.
+      const wallets = await this.prisma.wallet.findMany({
+        where: { chainId: this.chain.chainId },
+      });
+      for (const wallet of wallets) {
+        try {
+          await this.syncOneWallet(wallet.address);
+        } catch (error) {
+          // One wallet's persistent failure must not starve every other wallet listed
+          // after it in this tick — log and move on; this wallet gets retried next tick.
+          this.logger.error(
+            `Failed to sync wallet ${wallet.address}`,
+            error as Error,
+          );
+        }
+      }
     } catch (error) {
       this.logger.error('Indexer tick failed', error as Error);
     } finally {
@@ -80,18 +107,38 @@ export class IndexerService {
     }
   }
 
-  private async syncWallet() {
+  /** The one pre-seeded dev/demo wallet from static config never gets a WalletCreated
+   * event (it's deployed directly, not via the factory — see DeployDev.s.sol), so it
+   * needs its own one-time provisioning rather than relying on syncFactory() to create
+   * its Wallet/cursor rows the way a factory-discovered wallet's are created. */
+  private async ensureDevWalletBootstrapped() {
     const address = this.chain.handlerWalletAddress.toLowerCase();
     const key = cursorKeyFor(address);
 
     const cursor = await this.prisma.indexerCursor.findUnique({
       where: { key },
     });
+    if (cursor) return;
 
+    await this.prisma.$transaction(
+      (tx) => this.bootstrap(tx, address, key),
+      TICK_TRANSACTION_OPTIONS,
+    );
+  }
+
+  /** Advances one wallet's own log stream from its own cursor. Called for every row in
+   * the Wallet table (the pre-seeded dev wallet plus every factory-discovered one) —
+   * assumes the wallet's IndexerCursor row already exists, created alongside its Wallet
+   * row by ensureDevWalletBootstrapped() or handleWalletCreated(). */
+  private async syncOneWallet(address: string) {
+    const key = cursorKeyFor(address);
+
+    const cursor = await this.prisma.indexerCursor.findUnique({
+      where: { key },
+    });
     if (!cursor) {
-      await this.prisma.$transaction(
-        (tx) => this.bootstrap(tx, address, key),
-        TICK_TRANSACTION_OPTIONS,
+      this.logger.warn(
+        `No IndexerCursor for wallet ${address} yet — skipping until one exists`,
       );
       return;
     }
@@ -100,7 +147,7 @@ export class IndexerService {
     if (latestBlock <= cursor.blockNumber) return;
 
     const logs = await this.chain.publicClient.getLogs({
-      address: this.chain.handlerWalletAddress,
+      address: address as Address,
       fromBlock: cursor.blockNumber + 1n,
       toBlock: latestBlock,
     });
@@ -176,7 +223,7 @@ export class IndexerService {
     extra: { frozenAt?: Date | null } = {},
   ) {
     const raw = await this.chain.publicClient.readContract({
-      address: this.chain.handlerWalletAddress,
+      address: walletAddress as Address,
       abi: this.chain.handlerWalletAbi,
       functionName: 'policies',
       args: [sessionKey as Address],
@@ -505,9 +552,10 @@ export class IndexerService {
     agentName: string,
     usdValue: bigint,
     db: Db,
+    walletAddress: string,
   ) {
     const raw = await this.chain.publicClient.readContract({
-      address: this.chain.handlerWalletAddress,
+      address: walletAddress as Address,
       abi: this.chain.handlerWalletAbi,
       functionName: 'pendingApprovals',
       args: [id],
@@ -569,7 +617,14 @@ export class IndexerService {
     );
 
     const { calldata, counterpartyAgentId, summary } =
-      await this.loadProposedCallDetails(id, target, agent.name, usdValue, db);
+      await this.loadProposedCallDetails(
+        id,
+        target,
+        agent.name,
+        usdValue,
+        db,
+        walletAddress,
+      );
 
     await db.pendingApproval.upsert({
       where: { id },
@@ -738,5 +793,84 @@ export class IndexerService {
     await db.indexerCursor.create({
       data: { key, blockNumber: 0n },
     });
+  }
+
+  /** Watches HandlerWalletFactory's own WalletCreated log stream (cursor key "factory"),
+   * distinct from every per-wallet `wallet:<address>` stream. No-op when the factory isn't
+   * deployed on this chain yet (chain.handlerWalletFactoryAddress is null) — see
+   * resolveHandlerWalletFactoryAddress. */
+  private async syncFactory() {
+    const factoryAddress = this.chain.handlerWalletFactoryAddress;
+    if (!factoryAddress) return;
+
+    const cursor = await this.prisma.indexerCursor.findUnique({
+      where: { key: FACTORY_CURSOR_KEY },
+    });
+
+    if (!cursor) {
+      await this.prisma.indexerCursor.create({
+        data: { key: FACTORY_CURSOR_KEY, blockNumber: 0n },
+      });
+      return;
+    }
+
+    const latestBlock = await this.chain.publicClient.getBlockNumber();
+    if (latestBlock <= cursor.blockNumber) return;
+
+    const logs = await this.chain.publicClient.getLogs({
+      address: factoryAddress,
+      fromBlock: cursor.blockNumber + 1n,
+      toBlock: latestBlock,
+    });
+    const decoded = parseEventLogs({
+      abi: this.chain.handlerWalletFactoryAbi,
+      logs,
+    }) as DecodedFactoryLog[];
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const log of decoded) {
+        if (log.eventName === 'WalletCreated') {
+          await this.handleWalletCreated(tx, log);
+        }
+      }
+      await tx.indexerCursor.update({
+        where: { key: FACTORY_CURSOR_KEY },
+        data: { blockNumber: latestBlock },
+      });
+    }, TICK_TRANSACTION_OPTIONS);
+  }
+
+  private async handleWalletCreated(
+    db: Db,
+    log: Extract<DecodedFactoryLog, { eventName: 'WalletCreated' }>,
+  ) {
+    const walletAddress = log.args.wallet.toLowerCase();
+    const owner = log.args.owner.toLowerCase();
+
+    await db.wallet.upsert({
+      where: { address: walletAddress },
+      update: {},
+      create: {
+        address: walletAddress,
+        chainId: this.chain.chainId,
+        owner,
+        createdTxHash: log.transactionHash,
+        createdBlock: log.blockNumber,
+        isDemo: false,
+      },
+    });
+
+    const key = cursorKeyFor(walletAddress);
+    const existingCursor = await db.indexerCursor.findUnique({
+      where: { key },
+    });
+    if (!existingCursor) {
+      // One block before the WalletCreated block, so this wallet's own future syncs
+      // (which start at cursor + 1) include the creation block itself — nothing on this
+      // address exists any earlier, so nothing before it is ever missed either way.
+      await db.indexerCursor.create({
+        data: { key, blockNumber: log.blockNumber - 1n },
+      });
+    }
   }
 }

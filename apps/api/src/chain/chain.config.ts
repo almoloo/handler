@@ -39,3 +39,16 @@ export function resolveHandlerWalletAddress(chainId: number): Address {
   }
   return config.handlerWallet;
 }
+
+/** Looks up the configured HandlerWalletFactory address for a chain id, per
+ * @handler/contracts/addresses. Unlike resolveHandlerWalletAddress, a missing or
+ * still-placeholder factory address is not fatal — returns null instead of throwing, so
+ * the API keeps booting normally on a chain where the factory hasn't been deployed yet
+ * (e.g. Base Sepolia today). Indexer factory-discovery is simply disabled on that chain. */
+export function resolveHandlerWalletFactoryAddress(
+  chainId: number,
+): Address | null {
+  const config = (addresses as Record<number, { factory: string }>)[chainId];
+  if (!config || !isAddress(config.factory)) return null;
+  return config.factory;
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseChainEnv,
   resolveHandlerWalletAddress,
+  resolveHandlerWalletFactoryAddress,
 } from './chain.config.js';
 
 describe('parseChainEnv', () => {
@@ -44,9 +45,24 @@ describe('resolveHandlerWalletAddress', () => {
     );
   });
 
-  it('throws for a configured but still-placeholder address (e.g. Base Sepolia "0x...")', () => {
-    expect(() => resolveHandlerWalletAddress(84532)).toThrow(
-      /is not a valid address/,
+  // No configured chain currently has a still-placeholder handlerWallet address (Base
+  // Sepolia's landed for real — see current-feature.md history), so the placeholder-throws
+  // path is covered instead by resolveHandlerWalletFactoryAddress below, which does have a
+  // genuine placeholder to test against (84532.factory).
+});
+
+describe('resolveHandlerWalletFactoryAddress', () => {
+  it('resolves the configured address for chain 31337', () => {
+    expect(resolveHandlerWalletFactoryAddress(31337)).toMatch(
+      /^0x[0-9a-fA-F]{40}$/,
     );
+  });
+
+  it('returns null for an unconfigured chain id', () => {
+    expect(resolveHandlerWalletFactoryAddress(999999)).toBeNull();
+  });
+
+  it('returns null for a configured but still-placeholder address (e.g. Base Sepolia "0x...")', () => {
+    expect(resolveHandlerWalletFactoryAddress(84532)).toBeNull();
   });
 });
