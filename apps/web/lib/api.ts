@@ -42,6 +42,20 @@ export interface PayrollAgent {
   pendingApprovalCount: number;
 }
 
+/**
+ * One row of `GET /agents/catalog` — a hireable agent, not yet scoped to any
+ * wallet. Mirrors `CatalogAgent` in apps/api's policies.service.ts.
+ */
+export interface CatalogAgent {
+  agentId: string;
+  address: string;
+  name: string;
+  description: string | null;
+  avatar: string | null;
+  trustTier: TrustTier;
+  trustSummary: string;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -134,6 +148,18 @@ export async function logout(): Promise<LogoutResponse | null> {
  */
 export async function fetchAgents(): Promise<PayrollAgent[]> {
   const result = await apiFetch<PayrollAgent[]>("/agents");
+  if (!result) {
+    throw new ApiError(401, "Session expired");
+  }
+  return result;
+}
+
+/**
+ * The hireable agent catalog for step 1 of the hire flow. Not wallet-scoped —
+ * a 401 here still only means the session expired mid-use.
+ */
+export async function fetchCatalog(): Promise<CatalogAgent[]> {
+  const result = await apiFetch<CatalogAgent[]>("/agents/catalog");
   if (!result) {
     throw new ApiError(401, "Session expired");
   }

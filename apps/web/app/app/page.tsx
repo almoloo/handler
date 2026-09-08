@@ -63,7 +63,7 @@ export default function Payroll() {
             title="No agents on payroll yet"
             message="Hire your first one and set the rules it has to follow."
             action={
-              <Button onClick={() => router.push("/hire")}>
+              <Button onClick={() => router.push("/app/hire")}>
                 Hire your first
               </Button>
             }

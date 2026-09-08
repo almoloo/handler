@@ -1,8 +1,9 @@
 import { Avatar } from "@/components/ui/avatar";
 import { ProgressBar } from "@/components/ui/progress-bar";
-import { TrustIndicator, type TrustIndicatorProps } from "@/components/ui/trust-indicator";
-import type { PayrollAgent, TrustTier } from "@/lib/api";
+import { TrustIndicator } from "@/components/ui/trust-indicator";
+import type { PayrollAgent } from "@/lib/api";
 import { formatCents, usd8ToCents } from "@/lib/format";
+import { TRUST_LEVEL } from "@/lib/trust";
 
 type AgentStatus = "active" | "frozen" | "pending";
 
@@ -10,14 +11,6 @@ const STATUS_STYLE: Record<AgentStatus, { label: string; dotClass: string }> = {
   active: { label: "Active", dotClass: "bg-[var(--status-approved-icon)]" },
   pending: { label: "Needs your approval", dotClass: "bg-[var(--status-pending-icon)]" },
   frozen: { label: "Frozen", dotClass: "bg-[var(--status-blocked-icon)]" },
-};
-
-/** FLAGGED has no distinct visual tier yet, so it renders as the most
- * restrictive one rather than borrowing the "building trust" middle state. */
-const TRUST_LEVEL: Record<TrustTier, NonNullable<TrustIndicatorProps["level"]>> = {
-  VERIFIED: "established",
-  NEW: "new",
-  FLAGGED: "new",
 };
 
 function statusOf(agent: PayrollAgent): AgentStatus {
