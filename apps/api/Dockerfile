@@ -14,6 +14,10 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
+# Must run before `nest build`/`pnpm deploy` — Node's native TS support refuses
+# to strip types for files resolved under node_modules (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING),
+# so @handler/contracts must ship compiled JS, not its raw ts/generated.ts source.
+RUN pnpm --filter @handler/contracts build:ts
 # Must run before `nest build` — src/prisma/prisma.service.ts imports the
 # generated client, so tsc fails on a fresh checkout without it.
 # prisma.config.ts also requires DATABASE_URL to be resolvable just to load

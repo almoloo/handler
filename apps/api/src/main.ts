@@ -8,6 +8,6 @@ async function bootstrap() {
   const authEnv = parseAuthEnv();
   app.enableCors({ origin: authEnv.WEB_ORIGIN, credentials: true });
   app.use(cookieParser(authEnv.SESSION_SECRET));
-  await app.listen(process.env.PORT ?? 3000);
+  await app.listen(process.env.PORT || 3000);
 }
 await bootstrap();

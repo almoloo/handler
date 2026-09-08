@@ -14,6 +14,10 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
+# @handler/contracts must ship compiled JS, not raw ts/generated.ts — see
+# apps/api/Dockerfile for why (Node's native TS type-stripping refuses to
+# run on files under node_modules).
+RUN pnpm --filter @handler/contracts build:ts
 # Next.js inlines NEXT_PUBLIC_* vars into the client bundle at build time —
 # setting it only as a runtime container env var (docker-compose.prod.yml)
 # has no effect, so it must be threaded in here as a build arg.

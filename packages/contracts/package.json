@@ -2,15 +2,16 @@
   "name": "@handler/contracts",
   "version": "1.0.0",
   "description": "",
-  "main": "ts/generated.ts",
-  "types": "ts/generated.ts",
+  "main": "dist/generated.js",
+  "types": "dist/generated.d.ts",
   "exports": {
-    ".": "./ts/generated.ts",
-    "./addresses": "./ts/addresses.ts"
+    ".": "./dist/generated.js",
+    "./addresses": "./dist/addresses.js"
   },
   "scripts": {
     "codegen": "forge build && wagmi generate",
     "build": "forge build",
+    "build:ts": "tsc -p tsconfig.json",
     "test": "forge test"
   },
   "keywords": [],
@@ -18,6 +19,7 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
-    "@wagmi/cli": "^2.10.0"
+    "@wagmi/cli": "^2.10.0",
+    "typescript": "^6.0.2"
   }
 }
