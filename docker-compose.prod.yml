@@ -61,12 +61,14 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_DEMO_ENABLED: ${NEXT_PUBLIC_DEMO_ENABLED}
     restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_DEMO_ENABLED: ${NEXT_PUBLIC_DEMO_ENABLED}
     ports:
       - "3000:3000"
     healthcheck:

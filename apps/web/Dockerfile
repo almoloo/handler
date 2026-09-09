@@ -23,6 +23,11 @@ RUN pnpm --filter @handler/contracts build:ts
 # has no effect, so it must be threaded in here as a build arg.
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Inlined into the client bundle at build time, so it must be present here and
+# not only at run time. The DEMO_TOKEN is deliberately not a build arg — the
+# operator pastes it into the screen so it never reaches the bundle.
+ARG NEXT_PUBLIC_DEMO_ENABLED
+ENV NEXT_PUBLIC_DEMO_ENABLED=$NEXT_PUBLIC_DEMO_ENABLED
 RUN pnpm --filter web build
 
 # Next's standalone output traces from the pnpm workspace root, so it
