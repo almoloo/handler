@@ -1,16 +1,22 @@
 "use client";
 
 import { useCallback } from "react";
-import { useChainId, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { handlerWalletAbi, resolveHandlerWalletAddress } from "@/lib/contracts";
+import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { handlerWalletAbi } from "@/lib/contracts";
+import { useWalletAddress } from "@/hooks/use-wallet-address";
 
 /**
  * Wraps the owner-signed `deny(id)` write against `HandlerWallet` — a
  * one-tap, plain wagmi write (no Ledger device needed; deny is not the
  * co-sign moment). Exact pattern-copy of `use-hire-agent.ts`.
+ *
+ * Targets the connected owner's own factory-created wallet
+ * (`useWalletAddress()`), not a static config address — a `PendingApproval`
+ * only exists for a wallet this session owns (`ApprovalsService.findForWallet`
+ * 404s otherwise), so this resolution always matches the approval being denied.
  */
 export function useDenyApproval() {
-  const chainId = useChainId();
+  const { walletAddress } = useWalletAddress();
   const { writeContractAsync, data: hash, isPending, error: writeError } =
     useWriteContract();
   const {
@@ -21,15 +27,17 @@ export function useDenyApproval() {
 
   const deny = useCallback(
     async (id: `0x${string}`) => {
-      const address = resolveHandlerWalletAddress(chainId);
+      if (!walletAddress) {
+        throw new Error("Wallet not found");
+      }
       return writeContractAsync({
-        address,
+        address: walletAddress,
         abi: handlerWalletAbi,
         functionName: "deny",
         args: [id],
       });
     },
-    [chainId, writeContractAsync],
+    [walletAddress, writeContractAsync],
   );
 
   return {

@@ -10,8 +10,9 @@ import {
 } from "@ledgerhq/device-management-kit";
 import { SignerEthBuilder } from "@ledgerhq/device-signer-kit-ethereum";
 import { connectLedger, getDmk } from "@/lib/ledger";
-import { handlerWalletAbi, resolveHandlerWalletAddress } from "@/lib/contracts";
+import { handlerWalletAbi } from "@/lib/contracts";
 import { useSession } from "@/hooks/use-session";
+import { useWalletAddress } from "@/hooks/use-wallet-address";
 
 export type LedgerApproveStatus =
   | "idle"
@@ -67,18 +68,24 @@ function waitForDeviceAction<Output, ActionError, IntermediateValue>(
  * unverifiable against a real device in this environment; every call here
  * was re-checked against the installed SDKs' own `.d.ts` files
  * (`lib/ledger.ts`'s doc comment), not assumed.
+ *
+ * Targets the connected owner's own factory-created wallet
+ * (`useWalletAddress()`), not a static config address — a `PendingApproval`
+ * only exists for a wallet this session owns (`ApprovalsService.findForWallet`
+ * 404s otherwise), so this resolution always matches the approval being signed.
  */
 export function useLedgerApprove() {
   const chainId = useChainId();
   const publicClient = usePublicClient({ chainId });
   const { data: session } = useSession();
+  const { walletAddress } = useWalletAddress();
   const [status, setStatus] = useState<LedgerApproveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
 
   const approve = useCallback(
     async (id: `0x${string}`) => {
-      if (!publicClient || !session) return;
+      if (!publicClient || !session || !walletAddress) return;
       setError(null);
       setTxHash(null);
 
@@ -109,7 +116,7 @@ export function useLedgerApprove() {
           );
         }
 
-        const to = resolveHandlerWalletAddress(chainId);
+        const to = walletAddress;
         const data = encodeFunctionData({
           abi: handlerWalletAbi,
           functionName: "approve",
@@ -170,7 +177,7 @@ export function useLedgerApprove() {
         setStatus("error");
       }
     },
-    [chainId, publicClient, session],
+    [chainId, publicClient, session, walletAddress],
   );
 
   return { approve, status, error, txHash };

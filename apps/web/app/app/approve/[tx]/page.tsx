@@ -14,6 +14,7 @@ import {
   useLedgerApprove,
   type LedgerApproveStatus,
 } from "@/hooks/use-ledger-approve";
+import { useWalletAddress } from "@/hooks/use-wallet-address";
 import { ApiError, type ApprovalDetail } from "@/lib/api";
 import { formatUsd8 } from "@/lib/format";
 import { TRUST_LEVEL } from "@/lib/trust";
@@ -56,6 +57,11 @@ export default function ApprovalSheet({
     error: approveError,
     txHash: approveTxHash,
   } = useLedgerApprove();
+  // Deny/Approve both target this owner's own HandlerWallet (see
+  // use-deny-approval.ts/use-ledger-approve.ts) — a click racing ahead of this
+  // on-chain walletOf read would otherwise no-op or throw, same race 5b-ii's
+  // audit already fixed once for the hire flow's Confirm button.
+  const { walletAddress, isLoading: isWalletLoading } = useWalletAddress();
 
   const approveInFlight = (
     ["connecting", "matching", "awaiting-device-confirmation", "broadcasting"] as LedgerApproveStatus[]
@@ -186,7 +192,7 @@ export default function ApprovalSheet({
                 <Button
                   variant="secondary"
                   type="button"
-                  disabled={isDenying || approveInFlight}
+                  disabled={isDenying || approveInFlight || isWalletLoading || !walletAddress}
                   onClick={handleDeny}
                 >
                   {isDenying ? "Denying…" : "Deny"}
@@ -194,7 +200,7 @@ export default function ApprovalSheet({
                 <Button
                   variant="primary"
                   type="button"
-                  disabled={isDenying || approveInFlight}
+                  disabled={isDenying || approveInFlight || isWalletLoading || !walletAddress}
                   onClick={handleApprove}
                 >
                   {APPROVE_BUTTON_COPY[approveStatus]}
