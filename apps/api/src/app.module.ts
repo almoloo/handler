@@ -10,6 +10,7 @@ import { IndexerModule } from './indexer/indexer.module.js';
 import { TrustModule } from './trust/trust.module.js';
 import { ActivityModule } from './activity/activity.module.js';
 import { ApprovalsModule } from './approvals/approvals.module.js';
+import { PricesModule } from './prices/prices.module.js';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { ApprovalsModule } from './approvals/approvals.module.js';
     TrustModule,
     ActivityModule,
     ApprovalsModule,
+    PricesModule,
   ],
 })
 export class AppModule {}
