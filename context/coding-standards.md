@@ -67,6 +67,7 @@ This repo has three parts with different conventions: `apps/web` (Next.js), `app
 ### Structure
 - One Nest module per concern, matching `context/backend-roadmap.md` §2: `chain/`, `indexer/`, `agents/`, `trust/`, `policies/`, `activity/`, `prices/`, `demo/`, `health/`.
 - Dependency rule: `agents`, `indexer`, `demo` may depend on `chain`; `activity`, `policies`, `trust`, `prices` are read/serve modules only. No circular module dependencies.
+- `demo` may additionally depend on `agents` — the director triggers real agent actions, and `AgentsService` is the only holder of Riley's session-key signer. That edge is demo-only: a read/serve module must still never import `AgentsModule` (it would drag in `ChainModule` transitively), which is why `activity.service.ts` and `approvals.service.ts` each keep their own copy of `walletAddressForOwner` rather than importing it.
 
 ### Data
 - Prisma is the only DB access layer — no raw SQL except inside a documented migration.

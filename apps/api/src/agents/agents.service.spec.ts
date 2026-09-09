@@ -13,7 +13,10 @@ type MockPrisma = {
     findUnique: ReturnType<typeof vi.fn>;
   };
   wallet: { findFirst: ReturnType<typeof vi.fn> };
-  policy: { findMany: ReturnType<typeof vi.fn> };
+  policy: {
+    findMany: ReturnType<typeof vi.fn>;
+    findFirst: ReturnType<typeof vi.fn>;
+  };
   intent: {
     findFirst: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
@@ -29,7 +32,7 @@ function makePrisma(): MockPrisma {
       findUnique: vi.fn(),
     },
     wallet: { findFirst: vi.fn() },
-    policy: { findMany: vi.fn(async () => []) },
+    policy: { findMany: vi.fn(async () => []), findFirst: vi.fn() },
     intent: {
       findFirst: vi.fn(async () => null),
       create: vi.fn(async () => ({ id: 'intent-1' })),
@@ -319,6 +322,116 @@ describe('AgentsService', () => {
       await service.tick();
 
       expect(runSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('payWalletForDemo', () => {
+    /** Wires the two lookups the on-demand path makes: the Subcontractor
+     * counterparty, Riley's own `Agent` row, and this wallet's `Policy`. */
+    function primeForDemo(prisma: MockPrisma, frozen = false) {
+      prisma.agent.findFirst.mockResolvedValueOnce({
+        address: SUBCONTRACTOR_ADDRESS,
+      });
+      prisma.agent.findUnique.mockResolvedValueOnce({ id: RILEY_AGENT_ID });
+      prisma.policy.findFirst.mockResolvedValueOnce({
+        id: 'policy-1',
+        frozen,
+      });
+    }
+
+    it('pays the Subcontractor at the caller-chosen amount, linked to the DemoRun', async () => {
+      const prisma = makePrisma();
+      primeForDemo(prisma);
+      const service = makeService(prisma);
+      vi.spyOn(service.rileyWalletClient, 'writeContract').mockResolvedValue(
+        '0xabc123',
+      );
+
+      await service.payWalletForDemo({
+        walletAddress: WALLET_ADDRESS,
+        valueWei: 20000000000000000n,
+        demoRunId: 'demo-run-1',
+      });
+
+      const created = prisma.intent.create.mock.calls[0][0];
+      expect(created.data.demoRunId).toBe('demo-run-1');
+      expect(created.data.valueRaw).toBe('20000000000000000');
+      expect(created.data.target).toBe(SUBCONTRACTOR_ADDRESS.toLowerCase());
+
+      const call = (
+        service.rileyWalletClient.writeContract as unknown as ReturnType<
+          typeof vi.fn
+        >
+      ).mock.calls[0][0];
+      expect(call.functionName).toBe('tryExecute');
+      expect(call.args[0].value).toBe(20000000000000000n);
+    });
+
+    it('does not consult the once-per-epoch guard — a beat is on demand', async () => {
+      const prisma = makePrisma();
+      primeForDemo(prisma);
+      const service = makeService(prisma);
+      vi.spyOn(service.rileyWalletClient, 'writeContract').mockResolvedValue(
+        '0xabc123',
+      );
+
+      await service.payWalletForDemo({
+        walletAddress: WALLET_ADDRESS,
+        valueWei: 1n,
+        demoRunId: 'demo-run-1',
+      });
+
+      // hasActedThisEpoch()'s only read. The cron path calls it; this one must not.
+      expect(prisma.intent.findFirst).not.toHaveBeenCalled();
+      expect(prisma.intent.create).toHaveBeenCalledOnce();
+    });
+
+    it('throws an operator-readable error when the wallet has not hired Riley', async () => {
+      const prisma = makePrisma();
+      prisma.agent.findFirst.mockResolvedValueOnce({
+        address: SUBCONTRACTOR_ADDRESS,
+      });
+      prisma.agent.findUnique.mockResolvedValueOnce({ id: RILEY_AGENT_ID });
+      prisma.policy.findFirst.mockResolvedValueOnce(null);
+      const service = makeService(prisma);
+
+      await expect(
+        service.payWalletForDemo({
+          walletAddress: WALLET_ADDRESS,
+          valueWei: 1n,
+          demoRunId: 'demo-run-1',
+        }),
+      ).rejects.toThrow(/hire it from the app first/i);
+      expect(prisma.intent.create).not.toHaveBeenCalled();
+    });
+
+    it('throws when Riley is frozen for that wallet, without submitting', async () => {
+      const prisma = makePrisma();
+      primeForDemo(prisma, true);
+      const service = makeService(prisma);
+
+      await expect(
+        service.payWalletForDemo({
+          walletAddress: WALLET_ADDRESS,
+          valueWei: 1n,
+          demoRunId: 'demo-run-1',
+        }),
+      ).rejects.toThrow(/frozen/i);
+      expect(prisma.intent.create).not.toHaveBeenCalled();
+    });
+
+    it('throws when the Subcontractor has not been registered on this chain', async () => {
+      const prisma = makePrisma();
+      prisma.agent.findFirst.mockResolvedValueOnce(null);
+      const service = makeService(prisma);
+
+      await expect(
+        service.payWalletForDemo({
+          walletAddress: WALLET_ADDRESS,
+          valueWei: 1n,
+          demoRunId: 'demo-run-1',
+        }),
+      ).rejects.toThrow(/register-agents/);
     });
   });
 });

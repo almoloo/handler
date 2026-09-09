@@ -11,7 +11,10 @@ type MockPrisma = {
     upsert: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
   };
-  policy: { findMany: ReturnType<typeof vi.fn> };
+  policy: {
+    findMany: ReturnType<typeof vi.fn>;
+    findFirst: ReturnType<typeof vi.fn>;
+  };
   intent: {
     findFirst: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
@@ -22,7 +25,7 @@ type MockPrisma = {
 function makePrisma(): MockPrisma {
   return {
     agent: { upsert: vi.fn(async () => ({})), findUnique: vi.fn() },
-    policy: { findMany: vi.fn(async () => []) },
+    policy: { findMany: vi.fn(async () => []), findFirst: vi.fn() },
     intent: {
       findFirst: vi.fn(async () => null),
       create: vi.fn(async () => ({ id: 'intent-1' })),
@@ -280,6 +283,85 @@ describe('VillainService', () => {
       await service.tick();
 
       expect(runSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('attemptForDemo', () => {
+    function primeForDemo(prisma: MockPrisma, frozen = false) {
+      prisma.agent.findUnique.mockResolvedValueOnce({ id: VILLAIN_AGENT_ID });
+      prisma.policy.findFirst.mockResolvedValueOnce({ id: 'policy-1', frozen });
+    }
+
+    it('attempts VILLAIN_PAYMENT_WEI against the unverified target, linked to the DemoRun', async () => {
+      const prisma = makePrisma();
+      primeForDemo(prisma);
+      const service = makeService(prisma);
+      vi.spyOn(service.villainWalletClient, 'writeContract').mockResolvedValue(
+        '0xabc123',
+      );
+
+      await service.attemptForDemo({
+        walletAddress: WALLET_ADDRESS,
+        demoRunId: 'demo-run-2',
+      });
+
+      const created = prisma.intent.create.mock.calls[0][0];
+      expect(created.data.demoRunId).toBe('demo-run-2');
+      expect(created.data.target).toBe(VILLAIN_TARGET_ADDRESS.toLowerCase());
+      expect(created.data.valueRaw).toBe(VILLAIN_PAYMENT_WEI);
+
+      const call = (
+        service.villainWalletClient.writeContract as unknown as ReturnType<
+          typeof vi.fn
+        >
+      ).mock.calls[0][0];
+      expect(call.functionName).toBe('tryExecute');
+    });
+
+    it('does not consult the once-per-epoch guard — a beat is on demand', async () => {
+      const prisma = makePrisma();
+      primeForDemo(prisma);
+      const service = makeService(prisma);
+      vi.spyOn(service.villainWalletClient, 'writeContract').mockResolvedValue(
+        '0xabc123',
+      );
+
+      await service.attemptForDemo({
+        walletAddress: WALLET_ADDRESS,
+        demoRunId: 'demo-run-2',
+      });
+
+      expect(prisma.intent.findFirst).not.toHaveBeenCalled();
+      expect(prisma.intent.create).toHaveBeenCalledOnce();
+    });
+
+    it('throws an operator-readable error when the wallet has not hired the villain', async () => {
+      const prisma = makePrisma();
+      prisma.agent.findUnique.mockResolvedValueOnce({ id: VILLAIN_AGENT_ID });
+      prisma.policy.findFirst.mockResolvedValueOnce(null);
+      const service = makeService(prisma);
+
+      await expect(
+        service.attemptForDemo({
+          walletAddress: WALLET_ADDRESS,
+          demoRunId: 'demo-run-2',
+        }),
+      ).rejects.toThrow(/hire it from the app first/i);
+      expect(prisma.intent.create).not.toHaveBeenCalled();
+    });
+
+    it('throws when the villain is frozen for that wallet, without submitting', async () => {
+      const prisma = makePrisma();
+      primeForDemo(prisma, true);
+      const service = makeService(prisma);
+
+      await expect(
+        service.attemptForDemo({
+          walletAddress: WALLET_ADDRESS,
+          demoRunId: 'demo-run-2',
+        }),
+      ).rejects.toThrow(/frozen/i);
+      expect(prisma.intent.create).not.toHaveBeenCalled();
     });
   });
 });

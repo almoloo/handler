@@ -4,7 +4,11 @@ import { createWalletClient, http, type Address } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { ChainService } from '../chain/chain.service.js';
 import { parseChainEnv } from '../chain/chain.config.js';
-import { hasActedThisEpoch, submitAgentPayment } from '../chain/agent-payment.js';
+import {
+  hasActedThisEpoch,
+  resolveHiredPolicy,
+  submitAgentPayment,
+} from '../chain/agent-payment.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AgentKind } from '../generated/prisma/enums.js';
 import { parseVillainEnv, type VillainEnv } from './villain.config.js';
@@ -124,6 +128,42 @@ export class VillainService implements OnModuleInit {
         );
       }
     }
+  }
+
+  /** The villain's on-demand entry point for the `/demo` director: one
+   * attempt, for one wallet, at the villain's configured payment size.
+   *
+   * Same two differences from the cron path as
+   * `AgentsService.payWalletForDemo` — single wallet, and no
+   * {@link hasActedThisEpoch} guard — and the same reason: nothing on-chain
+   * is skipped. The block this produces is the real `TrustReader` refusing a
+   * counterparty nobody has registered, on a real, explorer-visible tx.
+   * The amount is not caller-chosen: the villain always attempts
+   * `VILLAIN_PAYMENT_WEI`, because the beat is about *who* it pays, not how
+   * much. */
+  async attemptForDemo(params: {
+    walletAddress: string;
+    demoRunId: string;
+  }): Promise<void> {
+    const policy = await resolveHiredPolicy({
+      prisma: this.prisma,
+      agentAddress: this.villainAddress,
+      agentName: VILLAIN_NAME,
+      walletAddress: params.walletAddress,
+    });
+
+    await submitAgentPayment({
+      prisma: this.prisma,
+      chain: this.chain,
+      account: this.villainAccount,
+      walletClient: this.villainWalletClient,
+      walletAddress: params.walletAddress as Address,
+      policyId: policy.id,
+      agentId: policy.agentId,
+      target: this.env.VILLAIN_TARGET_ADDRESS as Address,
+      valueWei: this.env.VILLAIN_PAYMENT_WEI,
+      demoRunId: params.demoRunId,
+    });
   }
 
   /** Attempts the villain's payment for one wallet, once per epoch. The

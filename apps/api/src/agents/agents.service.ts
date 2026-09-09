@@ -4,7 +4,11 @@ import { createWalletClient, http, type Address } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { ChainService } from '../chain/chain.service.js';
 import { parseChainEnv } from '../chain/chain.config.js';
-import { hasActedThisEpoch, submitAgentPayment } from '../chain/agent-payment.js';
+import {
+  hasActedThisEpoch,
+  resolveHiredPolicy,
+  submitAgentPayment,
+} from '../chain/agent-payment.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AgentKind } from '../generated/prisma/enums.js';
 import { parseAgentsEnv, type AgentsEnv } from './agents.config.js';
@@ -58,6 +62,13 @@ export class AgentsService implements OnModuleInit {
 
   get rileyAddress(): Address {
     return this.rileyAccount.address;
+  }
+
+  /** Riley's configured per-run payment size (wei). Exposed so the `/demo`
+   * director's workday beat submits the same amount the cron does, rather
+   * than parsing `RILEY_PAYMENT_WEI` a second time. */
+  get paymentWei(): bigint {
+    return this.env.RILEY_PAYMENT_WEI;
   }
 
   /** Resolves the real Subcontractor counterparty's address — the exact
@@ -175,6 +186,45 @@ export class AgentsService implements OnModuleInit {
       policy,
       agentId: rileyAgentId,
       target: subcontractorAddress,
+    });
+  }
+
+  /** Riley's on-demand entry point for the `/demo` director: pays the
+   * Subcontractor once, for one wallet, at a caller-chosen amount.
+   *
+   * Two deliberate differences from the cron path, neither of which touches
+   * the chain: it acts on a single wallet instead of every wallet that hired
+   * Riley, and it skips {@link hasActedThisEpoch}. That guard is a backend
+   * dedupe convenience, not a policy check — `tryExecute` re-runs every real
+   * trust/cap/allowance check on this call exactly as it does for the cron —
+   * and without the skip, two beats paying the same counterparty in one epoch
+   * would silently no-op. `valueWei` is what makes the over-the-co-sign-cap
+   * beat differ from the workday beat: the wallet's own `PriceConverter`
+   * values it, and `cosignAboveUsd` decides whether it executes or queues. */
+  async payWalletForDemo(params: {
+    walletAddress: string;
+    valueWei: bigint;
+    demoRunId: string;
+  }): Promise<void> {
+    const subcontractorAddress = await this.subcontractorAddress();
+    const policy = await resolveHiredPolicy({
+      prisma: this.prisma,
+      agentAddress: this.rileyAddress,
+      agentName: RILEY_NAME,
+      walletAddress: params.walletAddress,
+    });
+
+    await submitAgentPayment({
+      prisma: this.prisma,
+      chain: this.chain,
+      account: this.rileyAccount,
+      walletClient: this.rileyWalletClient,
+      walletAddress: params.walletAddress as Address,
+      policyId: policy.id,
+      agentId: policy.agentId,
+      target: subcontractorAddress,
+      valueWei: params.valueWei,
+      demoRunId: params.demoRunId,
     });
   }
 

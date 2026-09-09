@@ -46,6 +46,56 @@ export async function hasActedThisEpoch(params: {
   return existing !== null;
 }
 
+/** The `Policy` slice a single-wallet, on-demand payment needs. */
+export type HiredPolicy = { id: string; agentId: string };
+
+/**
+ * Resolves one wallet's active policy for one agent, for the `/demo`
+ * director's single-wallet entry points — the on-demand counterpart to the
+ * cron's "every wallet that hired me" `policy.findMany`. Shared by
+ * `AgentsService.payWalletForDemo` and `VillainService.attemptForDemo`.
+ *
+ * Both failure modes throw with an operator-readable message rather than
+ * returning `null`: a beat that quietly did nothing is worse mid-take than a
+ * beat that says why. Neither is recoverable in code — hiring and unfreezing
+ * are owner-signed actions taken in the app.
+ */
+export async function resolveHiredPolicy(params: {
+  prisma: PrismaService;
+  agentAddress: Address;
+  agentName: string;
+  walletAddress: string;
+}): Promise<HiredPolicy> {
+  const { prisma, agentAddress, agentName, walletAddress } = params;
+
+  const agent = await prisma.agent.findUnique({
+    where: { address: agentAddress.toLowerCase() },
+    select: { id: true },
+  });
+  if (!agent) {
+    throw new Error(
+      `${agentName} has no agent row yet — the API registers it on boot, so this means it hasn't started cleanly.`,
+    );
+  }
+
+  const policy = await prisma.policy.findFirst({
+    where: { agentId: agent.id, walletAddress: walletAddress.toLowerCase() },
+    select: { id: true, frozen: true },
+  });
+  if (!policy) {
+    throw new Error(
+      `${agentName} hasn't been hired by the showcase wallet yet — hire it from the app first (session key ${agentAddress}).`,
+    );
+  }
+  if (policy.frozen) {
+    throw new Error(
+      `${agentName} is frozen for the showcase wallet — unfreeze it from the app first.`,
+    );
+  }
+
+  return { id: policy.id, agentId: agent.id };
+}
+
 /** Writes the `Intent` row before submitting the tx (backend-roadmap §4.2's
  * "intent row first" rule), then calls `tryExecute` via the agent's own
  * session-key signer. A submit-time throw (no tx hash yet, e.g. an RPC error
@@ -58,7 +108,13 @@ export async function hasActedThisEpoch(params: {
  * `AgentsService.payWallet` and `VillainService.payWallet` — the only
  * difference between a real payment and the villain's deliberately-blocked
  * one is which `target`/`valueWei` the caller passes in; the contract's own
- * checks decide whether it executes or blocks. */
+ * checks decide whether it executes or blocks.
+ *
+ * `demoRunId` is the one demo-aware parameter: when the `/demo` director
+ * triggered this payment, the `Intent` row is linked back to its `DemoRun`
+ * so an operator can see which run produced which on-chain attempt. It
+ * changes nothing about the call itself — a beat submits exactly the tx the
+ * cron would. */
 export async function submitAgentPayment(params: {
   prisma: PrismaService;
   chain: ChainService;
@@ -69,6 +125,8 @@ export async function submitAgentPayment(params: {
   agentId: string;
   target: Address;
   valueWei: bigint;
+  /** Set only when the `/demo` director triggered this payment. */
+  demoRunId?: string;
 }): Promise<void> {
   const {
     prisma,
@@ -80,6 +138,7 @@ export async function submitAgentPayment(params: {
     agentId,
     target,
     valueWei,
+    demoRunId,
   } = params;
 
   const intent = await prisma.intent.create({
@@ -92,6 +151,7 @@ export async function submitAgentPayment(params: {
       valueRaw: valueWei.toString(),
       calldata: '0x',
       status: IntentStatus.PLANNED,
+      demoRunId: demoRunId ?? null,
     },
   });
 

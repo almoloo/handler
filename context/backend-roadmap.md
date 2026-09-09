@@ -35,7 +35,7 @@ apps/api/src/
   policies/     mirror of on-chain policy state + write endpoints
   activity/     REST + SSE serving the feed & pending approvals
   prices/       Chainlink feed reads, cached USD conversions
-  demo/         operator tooling (env-gated): triggers beats 1–4 against the showcase wallet, runs the villain actor, reset
+  demo/         operator tooling (controller env-gated): triggers beats 1–3 against the showcase wallet, runs the villain actor, reset
   health/       /health for the video-day sanity check
 ```
 
@@ -97,8 +97,10 @@ How this maps to the track's four priority areas: (1) *secrets they cannot leak*
 Plain `AggregatorV3` price reads (§4.4) don't qualify for any open ETHOnline 2026 Chainlink prize — the only non-Continuity track is "Best Confidential Workflow" ($2,000, up to 2 teams), which requires a CRE workflow that registers a confidential TEE handler (`handlerInTee` / `cre.HandlerInTee`) processing at least one genuinely sensitive input inside the enclave, demonstrated via `cre workflow simulate` or a live deployment. Trust tiers and policy thresholds are public on-chain data, so wrapping those would read as a placeholder. **Open question:** the previous candidate sensitive input was the 1inch API key (now cut — see `project-overview.md`); no replacement genuinely-sensitive input in Riley's loop has been identified yet. This stretch stays parked until one is found — don't invent a placeholder just to keep the stretch alive. If none turns up by day 7's feature freeze, drop it, no sunk cost.
 
 ### 4.6 Demo director (operator tooling, not product)
-- Whole module is registered only when `DEMO_ENABLED=true`; every route requires a valid SIWE session whose address owns the showcase wallet **and** the `DEMO_TOKEN` header.
-- `POST /demo/beat/:n` (1–4, matching the frontend director screen) — triggers the *real* action for the showcase wallet: 1 = Riley "run now"; 2 = Riley pays the subcontractor; 3 = the villain actor calls `tryExecute()` and is blocked on-chain; 4 = Riley proposes above the co-sign cap. Logs to `DemoRun`. Nothing here bypasses policy, trust, or price checks.
+- The module registers unconditionally and its **controller** is what `DEMO_ENABLED` gates (`DemoGuard` 404s when off) — `VillainService` lives in this module as real product code whose cron `run()` is *not* demo-gated, so module-gating would silently remove the villain from a deployment without the flag. Every route requires a valid SIWE session whose address owns the showcase wallet **and** the `DEMO_TOKEN` header.
+- `POST /demo/beat/:n` (1–3, matching the frontend director screen) — triggers the *real* action for the showcase wallet: 1 = Riley pays the Subcontractor (`Executed`); 2 = the villain actor calls `tryExecute()` and is blocked on-chain (`ExecutionBlocked`); 3 = Riley pays above the co-sign cap, which `tryExecute()` auto-routes to the pending-approval queue (`Proposed`). Logs to `DemoRun`. Nothing here bypasses policy, trust, or price checks — the only backend guard a beat skips is the cron's own once-per-epoch dedupe, which is not a policy check.
+
+  **Renumbered from the original four beats** (see `context/current-feature.md`, sub-feature 8a): dropping 1inch removed the old beat 1 ("Riley begins rebalancing"), leaving Riley's Subcontractor payment as both beat 1 and beat 2. Beats 1 and 3 are now the same call at different amounts — the wallet's own `cosignAboveUsd` decides which executes and which queues, so the co-sign beat needed no new contract or agent code.
 - `POST /demo/reset` — restores the showcase wallet for a retake. Locally (`pnpm dev:chain`'s anvil) it is `evm_revert` to the post-setup snapshot + re-snapshot + cursor rewind, near-instant. On the public **Base mainnet** deployment (moved from the originally-planned Base Sepolia — see `context/current-feature.md`), it unfreezes the showcase wallet's agents via real owner txs and deletes **only** rows whose `walletAddress` is the showcase wallet before re-indexing. **Open question, not yet resolved:** the original "tops up balances from the faucet" plan assumed a testnet faucet, which doesn't exist on mainnet — topping up now means sending real ETH from a funded operator wallet, or simply pre-funding the showcase wallet generously enough that resets rarely need a top-up at all. Whichever this feature lands with, it never truncates a table and never touches another wallet's rows. Target: < 30s, idempotent, safe to mash.
 - Never linked from the app's navigation; the `/demo` page 404s unless the flag is on.
 
@@ -144,7 +146,7 @@ Auth: real SIWE-based session auth — the owner signs a SIWE message with their
 | 4 | Trust service (ERC-8004 chain reads) + `scripts/register-agents.ts` · activity REST + SSE | Frontend feed reads live API data; catalog agents show real registry-derived tiers |
 | 5 | Hire-metadata endpoint + freeze/approval event handling in indexer · prices module | Frontend hire flow end-to-end |
 | 6 | Approvals pipeline (pending rows + approved/denied callbacks) · subcontractor + villain agents · Riley's payment-to-subcontractor action (replaces the cut 1inch swap) · **Ledger track pivot: `RILEY_SESSION_KEY` becomes Key Ring ciphertext decrypted at container boot (§4.2); VPS enrollment path documented** | Beats 2–4 run from curl; no plaintext agent secret in Coolify config; `docs/ledger-feedback.md` started |
-| 7 | Demo director + reset hardened; **feature freeze at EOD** on locked scope | Beats 1–4 + reset, 3 consecutive clean runs; a second, non-showcase wallet is untouched by reset (e2e) |
+| 7 | Demo director + reset hardened; **feature freeze at EOD** on locked scope | Beats 1–3 + reset, 3 consecutive clean runs; a second, non-showcase wallet is untouched by reset (e2e) |
 | 8 | Failure drills: RPC flake, double-fire beats, restart mid-take; showcase agents' on-chain registrations final · **stretch:** Chainlink Confidential Workflow (§4.5), attempted only if 8's failure drills are already clean | Reset < 30s, beats idempotent |
 | 9 | Video day: backend on standby, `/health` open in a tab, no deploys | — |
 

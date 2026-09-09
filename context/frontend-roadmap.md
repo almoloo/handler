@@ -100,11 +100,13 @@ Navigation: two-tab bar (Payroll · Activity) + a floating "Hire agent" action. 
 ## 6. Demo Director (operator tooling — isolated, never product)
 
 `/demo` director screen (phone #2 or laptop). It renders only when `NEXT_PUBLIC_DEMO_ENABLED=true` and the signed-in wallet owns the showcase wallet (otherwise 404); its buttons call `POST /demo/beat/:n` on the backend, which triggers the *real* agents against the showcase wallet through the same code paths any wallet uses:
-1. **"Start workday"** — good agent begins rebalancing (real testnet txs, pre-funded).
-2. **"Hire subcontractor"** — good agent pays a verified agent (machine-to-machine beat).
-3. **"Send the villain"** — zero-reputation agent attempts the $500 charge → wallet's `tryExecute()` blocks it and emits `ExecutionBlocked` on-chain (a real, explorer-visible tx — see contracts roadmap §2.1) → calm slate blocked card on the hero phone — the villain beat lands on the policy visibly working, not a color spike.
-4. **"Retry over threshold"** — verified agent requests above co-sign cap → pending card → approval sheet → Ledger.
-Plus **Reset** — restores balances/state for retakes (video will need 5+ takes; one tap, < 30s). Beats 1–4 map to backend `POST /demo/beat/:n`; Reset maps to `POST /demo/reset`.
+1. **"Start workday"** — Riley pays the verified Subcontractor (the machine-to-machine beat; real mainnet tx, pre-funded) → `Executed` → approved card.
+2. **"Send the villain"** — zero-reputation agent attempts its charge → wallet's `tryExecute()` blocks it and emits `ExecutionBlocked` on-chain (a real, explorer-visible tx — see contracts roadmap §2.1) → calm slate blocked card on the hero phone — the villain beat lands on the policy visibly working, not a color spike.
+3. **"Over the threshold"** — Riley pays above the co-sign cap → `tryExecute()` auto-routes it to the pending queue (`Proposed`) → pending card → approval sheet → Ledger.
+
+**Three beats, renumbered** (see `context/current-feature.md`, sub-feature 8a): dropping 1inch removed the original beat 1 ("good agent begins rebalancing"), which left Riley's Subcontractor payment as both beat 1 and beat 2. Beats 1 and 3 are the same call at different amounts — the wallet's own `cosignAboveUsd` decides which executes and which queues.
+
+Plus **Reset** — restores state for retakes (video will need 5+ takes; one tap, < 30s). Beats 1–3 map to backend `POST /demo/beat/:n`; Reset maps to `POST /demo/reset`.
 
 Rule: every beat produces a *real* on-chain transaction through the real policy/trust/price checks. The director controls timing, never results. Product screens never import from `/lib/demo`, and no product component has a "demo mode" branch.
 
@@ -120,7 +122,7 @@ Rule: every beat produces a *real* on-chain transaction through the real policy/
 | 4 | Activity feed + notification cards on **backend REST + SSE** | Live txs appear as cards unaided, for any signed-in wallet |
 | 5 | Agent file + freeze + policy sentences; USD framing via `GET /prices`; switch hire flow to the factory | Policy round-trips on-chain |
 | 6 | Approval sheet + Ledger co-sign path | Full pending→approve/deny loop works |
-| 7 | Demo engine + villain beat + reset; **feature freeze at EOD** | Beats 1–4 + reset run back-to-back clean |
+| 7 | Demo engine + villain beat + reset; **feature freeze at EOD** | Beats 1–3 + reset run back-to-back clean |
 | 8 | Polish pass: motion budget, copy pass, empty/error states, responsive breakpoint pass, seed data | Zero known visual bugs on iPhone-width or desktop-width |
 | 9 | Video day: script, record on the real app, edit, submit **early** | Submitted before the deadline rush |
 
