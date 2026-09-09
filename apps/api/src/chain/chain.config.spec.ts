@@ -39,6 +39,10 @@ describe('resolveHandlerWalletAddress', () => {
     expect(resolveHandlerWalletAddress(31337)).toMatch(/^0x[0-9a-fA-F]{40}$/);
   });
 
+  it('resolves the configured address for chain 8453 (Base mainnet)', () => {
+    expect(resolveHandlerWalletAddress(8453)).toMatch(/^0x[0-9a-fA-F]{40}$/);
+  });
+
   it('throws for an unconfigured chain id', () => {
     expect(() => resolveHandlerWalletAddress(999999)).toThrow(
       /No HandlerWallet address configured/,
@@ -58,11 +62,17 @@ describe('resolveHandlerWalletFactoryAddress', () => {
     );
   });
 
+  it('resolves the configured address for chain 8453 (Base mainnet)', () => {
+    expect(resolveHandlerWalletFactoryAddress(8453)).toMatch(
+      /^0x[0-9a-fA-F]{40}$/,
+    );
+  });
+
   it('returns null for an unconfigured chain id', () => {
     expect(resolveHandlerWalletFactoryAddress(999999)).toBeNull();
   });
 
-  it('returns null for a configured but still-placeholder address (e.g. Base Sepolia "0x...")', () => {
+  it('returns null for a configured but still-placeholder address (Base Sepolia "0x...", now a dead chain — see current-feature.md)', () => {
     expect(resolveHandlerWalletFactoryAddress(84532)).toBeNull();
   });
 });

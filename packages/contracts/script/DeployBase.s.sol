@@ -11,18 +11,22 @@ import {IReputationRegistry} from "../src/interfaces/erc8004/IReputationRegistry
 import {AggregatorV3Interface} from "../src/interfaces/chainlink/AggregatorV3Interface.sol";
 import {DeployConfig} from "./DeployConfig.sol";
 
-/// @notice Local-dev deployment: PriceConverter -> TrustReader -> HandlerWallet, all owned by
-/// the broadcasting account. Run against anvil (see pnpm dev:chain); the resulting addresses
-/// are deterministic across every fresh anvil boot, so they get committed into
-/// packages/contracts/ts/addresses.ts rather than regenerated per run. Anvil forks Base
-/// mainnet (BASE_RPC_URL, see pnpm dev:chain), so DeployConfig's registry/feed addresses are
-/// live at the fork block here too, not stubs.
+/// @notice The real public deployment: PriceConverter -> TrustReader -> HandlerWallet -> Factory,
+/// all owned by the broadcasting account, on Base mainnet (chain id 8453) — see
+/// context/current-feature.md's "Move the public deployment to Base mainnet" fix for why: the
+/// ERC-8004 registries and the Chainlink feeds this deployment depends on only have code on
+/// Base mainnet, not on any testnet. Shares its registry/feed constants with DeployDev.s.sol
+/// via DeployConfig — this really is Base mainnet, not a fork of it, so the same addresses
+/// apply for real rather than via anvil's fork.
 ///
-/// Also deploys HandlerWalletFactory, linked to the same TrustReader/PriceConverter, alongside
-/// the dev HandlerWallet above — additive only. The dev wallet itself is still created directly
-/// (not via the factory) so its address stays exactly what's already committed in addresses.ts;
-/// wiring the factory into the actual hire flow is a separate, later feature.
-contract DeployDev is Script, DeployConfig {
+/// Also deploys a deployer-owned HandlerWallet directly (mirroring DeployDev.s.sol's dev
+/// wallet), even though the public hire flow only ever creates wallets through the factory:
+/// chain.config.ts's resolveHandlerWalletAddress() throws (not null) when unset, and
+/// trust.service.ts/indexer.service.ts read it unconditionally at boot — so the api container
+/// would crash on start against 8453 without an addresses.ts handlerWallet entry. Retiring
+/// that dependency in favor of a fully factory-only flow is the separate follow-up fix noted in
+/// context/current-feature.md's "Deliberately not in this fix".
+contract DeployBase is Script, DeployConfig {
     function run() external {
         vm.startBroadcast();
         address deployer = msg.sender;

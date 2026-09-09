@@ -16,8 +16,8 @@
 | Trust | ERC-8004 Identity + Reputation registry reads | The differentiator |
 | Typegen | forge build artifacts → wagmi/viem codegen in `packages/contracts` | One ABI source for web + api |
 
-**Chain: Base Sepolia** — Chainlink feeds live, ERC-8004 canonically deployed on Base, cheap and fast for retakes.
-1inch is not part of the product (cut — its API key requires KYC the team won't complete; see `project-overview.md`). The public deployment is Base Sepolia, plain. `allowSwaps`/`SwapsNotAllowed()` remain as a generic policy-engine classification (swap-router-shaped calls vs. plain transfers vs. unknown contracts) — no product feature currently routes a real swap through it, so it's exercised by tests only.
+**Chain: Base mainnet (8453)** — the original plan targeted Base Sepolia for a cheap, fast-retake testnet, but ERC-8004's Identity + Reputation registries have no code on Base Sepolia (or any other testnet checked: Ethereum, OP, Arbitrum Sepolia) — only Base mainnet, where Chainlink's feeds also live. Moved for real per `context/current-feature.md`'s "Move the public deployment to Base mainnet" fix; retakes cost real (small) gas.
+1inch is not part of the product (cut — its API key requires KYC the team won't complete; see `project-overview.md`). The public deployment is Base mainnet, plain. `allowSwaps`/`SwapsNotAllowed()` remain as a generic policy-engine classification (swap-router-shaped calls vs. plain transfers vs. unknown contracts) — no product feature currently routes a real swap through it, so it's exercised by tests only.
 
 ---
 
