@@ -56,6 +56,47 @@ export interface CatalogAgent {
   trustSummary: string;
 }
 
+/**
+ * `GET /agents/:id`'s `policy` field for a hired agent. Mirrors
+ * `AgentFilePolicy` in apps/api's policies.service.ts — the same `Omit` over
+ * `PayrollAgent` the backend derives it from, so the two stay in lockstep by
+ * construction rather than by hand-copied field lists.
+ */
+export type AgentFilePolicy = Omit<
+  PayrollAgent,
+  "name" | "avatar" | "agentId" | "trustTier" | "trustSummary" | "pendingApprovalCount"
+>;
+
+/**
+ * `GET /agents/:id`'s response — the agent file screen's data. Mirrors
+ * `AgentFile` in apps/api's policies.service.ts field-for-field, with one
+ * intentional tightening: `recentActivity[].type` is typed as the real
+ * `ActivityType` union rather than the backend's bare `string`, matching the
+ * precedent already set for `trustTier`/`trustSummary` on `PayrollAgent`
+ * (5a's audit note) — the value is read straight off an `ActivityEvent` row,
+ * so the stricter type costs nothing and lets `activityStatus()` consume it
+ * directly. `policy: null` means this wallet hasn't hired the agent yet —
+ * a normal browsing state, not an error.
+ */
+export interface AgentFile {
+  agentId: string;
+  address: string;
+  name: string;
+  description: string | null;
+  avatar: string | null;
+  trustTier: TrustTier;
+  trustSummary: string;
+  policy: AgentFilePolicy | null;
+  recentActivity: Array<{
+    id: string;
+    type: ActivityType;
+    summary: string;
+    amountUsd: string | null;
+    txHash: string | null;
+    createdAt: string;
+  }>;
+}
+
 /** Mirrors the backend's `ActivityType` enum (`generated/prisma/enums.ts`). */
 export type ActivityType =
   | "WALLET_CREATED"
@@ -264,6 +305,21 @@ export async function fetchAgents(): Promise<PayrollAgent[]> {
  */
 export async function fetchCatalog(): Promise<CatalogAgent[]> {
   const result = await apiFetch<CatalogAgent[]>("/agents/catalog");
+  if (!result) {
+    throw new ApiError(401, "Session expired");
+  }
+  return result;
+}
+
+/**
+ * One agent's file: profile + trust badge, this wallet's policy for it (or
+ * `null` if not hired), and its recent activity. A 404 (unknown agent id)
+ * surfaces as a real `ApiError(404, ...)` via `apiFetch`'s generic error
+ * path, same as `fetchApproval`. A 401 can only mean the session expired
+ * mid-use.
+ */
+export async function fetchAgentFile(agentId: string): Promise<AgentFile> {
+  const result = await apiFetch<AgentFile>(`/agents/${agentId}`);
   if (!result) {
     throw new ApiError(401, "Session expired");
   }

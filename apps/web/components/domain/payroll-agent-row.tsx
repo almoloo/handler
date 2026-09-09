@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Avatar } from "@/components/ui/avatar";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { TrustIndicator } from "@/components/ui/trust-indicator";
@@ -26,7 +27,10 @@ export function PayrollAgentRow({ agent }: { agent: PayrollAgent }) {
   const capCents = usd8ToCents(agent.dailyCapUsd);
 
   return (
-    <div className="flex items-center gap-4 border-b border-[var(--border-subtle)] px-1 py-4 font-sans last:border-b-0">
+    <Link
+      href={`/app/agent/${agent.agentId}`}
+      className="flex items-center gap-4 border-b border-[var(--border-subtle)] px-1 py-4 font-sans last:border-b-0 hover:bg-[var(--surface-sunken)]"
+    >
       <Avatar name={agent.name} size={40} src={agent.avatar} />
 
       <div className="min-w-0 flex-1">
@@ -59,6 +63,6 @@ export function PayrollAgentRow({ agent }: { agent: PayrollAgent }) {
           />
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
