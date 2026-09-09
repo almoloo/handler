@@ -3,9 +3,10 @@ import { ConflictException, UnprocessableEntityException } from '@nestjs/common'
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { AgentsService } from '../agents/agents.service.js';
 import type { VillainService } from './villain.service.js';
+import type { ChainService } from '../chain/chain.service.js';
 import { DemoRunStatus } from '../generated/prisma/enums.js';
 import type { DemoEnv } from './demo.config.js';
-import { DemoService, isBeatNumber } from './demo.service.js';
+import { DemoService, RESET_BEAT, isBeatNumber } from './demo.service.js';
 
 const OWNER = '0xAAaAaAAAAaaaAaAAaAaaAAAAAaAAaAAaAaAAAAAa';
 const WALLET_ADDRESS = '0xwallet00000000000000000000000000000000';
@@ -20,13 +21,28 @@ const ENV: DemoEnv = {
 };
 
 function makePrisma() {
-  return {
+  const prisma = {
     wallet: { update: vi.fn(async () => ({})) },
     demoRun: {
       create: vi.fn(async () => ({ id: 'demo-run-1' })),
       update: vi.fn(async (args: { data: unknown }) => args.data),
     },
+    activityEvent: { deleteMany: vi.fn(async () => ({ count: 7 })) },
+    pendingApproval: { deleteMany: vi.fn(async () => ({ count: 2 })) },
+    intent: { deleteMany: vi.fn(async () => ({ count: 3 })) },
+    indexerCursor: { upsert: vi.fn(async () => ({})) },
+    policy: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    /** Runs the callback against the same double, so call-order assertions
+     * see every write the transaction made. */
+    $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn(prisma),
+    ),
   };
+  return prisma;
+}
+
+function makeChain(blockNumber = 12345678n) {
+  return { publicClient: { getBlockNumber: vi.fn(async () => blockNumber) } };
 }
 
 function makeAgents(walletAddress: string | null = WALLET_ADDRESS) {
@@ -46,14 +62,16 @@ function makeService(
   agents = makeAgents(),
   villain = makeVillain(),
   env: DemoEnv = ENV,
+  chain = makeChain(),
 ) {
   const service = new DemoService(
     prisma as unknown as PrismaService,
     agents as unknown as AgentsService,
     villain as unknown as VillainService,
+    chain as unknown as ChainService,
     env,
   );
-  return { service, prisma, agents, villain };
+  return { service, prisma, agents, villain, chain };
 }
 
 describe('isBeatNumber', () => {
@@ -210,5 +228,197 @@ describe('DemoService.runBeat', () => {
     await expect(service.runBeat(1)).rejects.toThrow(
       UnprocessableEntityException,
     );
+  });
+});
+
+describe('DemoService.reset', () => {
+  const WALLET = { walletAddress: WALLET_ADDRESS };
+
+  it('deletes only the showcase wallet’s rows, on all three feed tables', async () => {
+    const { service, prisma } = makeService();
+
+    await service.reset();
+
+    expect(prisma.activityEvent.deleteMany).toHaveBeenCalledWith({ where: WALLET });
+    expect(prisma.pendingApproval.deleteMany).toHaveBeenCalledWith({ where: WALLET });
+    expect(prisma.intent.deleteMany).toHaveBeenCalledWith({ where: WALLET });
+  });
+
+  it('never issues an unscoped deleteMany — the one unrecoverable mistake here', async () => {
+    const { service, prisma } = makeService();
+
+    await service.reset();
+
+    for (const table of [
+      prisma.activityEvent,
+      prisma.pendingApproval,
+      prisma.intent,
+    ]) {
+      for (const call of table.deleteMany.mock.calls) {
+        const args = call[0] as { where?: { walletAddress?: string } };
+        expect(args?.where?.walletAddress).toBe(WALLET_ADDRESS);
+      }
+    }
+  });
+
+  it('deletes child-first: ActivityEvent before PendingApproval before Intent', async () => {
+    const { service, prisma } = makeService();
+
+    await service.reset();
+
+    const order = [
+      prisma.activityEvent.deleteMany.mock.invocationCallOrder[0],
+      prisma.pendingApproval.deleteMany.mock.invocationCallOrder[0],
+      prisma.intent.deleteMany.mock.invocationCallOrder[0],
+    ];
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
+  it('jumps this wallet’s cursor to the current block, not to its creation block', async () => {
+    const { service, prisma } = makeService(
+      makePrisma(),
+      makeAgents(),
+      makeVillain(),
+      ENV,
+      makeChain(999n),
+    );
+
+    await service.reset();
+
+    expect(prisma.indexerCursor.upsert).toHaveBeenCalledWith({
+      where: { key: `wallet:${WALLET_ADDRESS}` },
+      update: { blockNumber: 999n },
+      create: { key: `wallet:${WALLET_ADDRESS}`, blockNumber: 999n },
+    });
+  });
+
+  it('reads the block number before opening the transaction', async () => {
+    const { service, prisma, chain } = makeService();
+
+    await service.reset();
+
+    expect(
+      chain.publicClient.getBlockNumber.mock.invocationCallOrder[0],
+    ).toBeLessThan(prisma.$transaction.mock.invocationCallOrder[0]);
+  });
+
+  it('does the deletes and the cursor write in one transaction', async () => {
+    const { service, prisma } = makeService();
+
+    await service.reset();
+
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+  });
+
+  it('never deletes policies, agents, wallets or demo runs', async () => {
+    const { service, prisma } = makeService();
+
+    await service.reset();
+
+    expect(prisma.policy.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.demoRun.create).toHaveBeenCalledOnce();
+  });
+
+  it('records a beat-0 run that succeeds with per-table counts in the log', async () => {
+    const { service, prisma } = makeService();
+
+    const run = await service.reset();
+
+    const created = prisma.demoRun.create.mock.calls[0][0] as {
+      data: { beat: number; status: string };
+    };
+    expect(created.data).toMatchObject({
+      beat: RESET_BEAT,
+      status: DemoRunStatus.RUNNING,
+    });
+    expect(run).toMatchObject({ status: DemoRunStatus.SUCCEEDED });
+    const log = (run as { log: string[] }).log;
+    expect(log.join(' ')).toMatch(/7 activity rows, 2 pending approvals, 3 intents/);
+  });
+
+  it('succeeds with zero counts on a wallet that has no rows yet', async () => {
+    const prisma = makePrisma();
+    prisma.activityEvent.deleteMany = vi.fn(async () => ({ count: 0 }));
+    prisma.pendingApproval.deleteMany = vi.fn(async () => ({ count: 0 }));
+    prisma.intent.deleteMany = vi.fn(async () => ({ count: 0 }));
+    const { service } = makeService(prisma);
+
+    const run = await service.reset();
+
+    expect(run).toMatchObject({ status: DemoRunStatus.SUCCEEDED });
+    expect(prisma.indexerCursor.upsert).toHaveBeenCalledOnce();
+  });
+
+  it('is safe to mash: two resets back to back both succeed', async () => {
+    const { service } = makeService();
+
+    await expect(service.reset()).resolves.toMatchObject({
+      status: DemoRunStatus.SUCCEEDED,
+    });
+    await expect(service.reset()).resolves.toMatchObject({
+      status: DemoRunStatus.SUCCEEDED,
+    });
+  });
+
+  it('records an RPC failure as a FAILED run, having deleted nothing', async () => {
+    const chain = {
+      publicClient: {
+        getBlockNumber: vi.fn(async () => {
+          throw new Error('rpc down');
+        }),
+      },
+    };
+    const { service, prisma } = makeService(
+      makePrisma(),
+      makeAgents(),
+      makeVillain(),
+      ENV,
+      chain,
+    );
+
+    const run = await service.reset();
+
+    expect(run).toMatchObject({
+      status: DemoRunStatus.FAILED,
+      error: expect.stringContaining('rpc down'),
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.activityEvent.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('422s when the showcase owner has no wallet, without creating a run', async () => {
+    const { service, prisma } = makeService(makePrisma(), makeAgents(null));
+
+    await expect(service.reset()).rejects.toThrow(UnprocessableEntityException);
+    expect(prisma.demoRun.create).not.toHaveBeenCalled();
+  });
+
+  it('409s a reset while a beat is in flight, and a beat while a reset is', async () => {
+    const agents = makeAgents();
+    let release: () => void = () => {};
+    agents.payWalletForDemo = vi.fn(
+      () => new Promise<undefined>((resolve) => {
+        release = () => resolve(undefined);
+      }),
+    );
+    const { service } = makeService(makePrisma(), agents);
+
+    const beat = service.runBeat(1);
+    await expect(service.reset()).rejects.toThrow(ConflictException);
+    release();
+    await beat;
+
+    const prismaSlow = makePrisma();
+    let releaseTx: () => void = () => {};
+    prismaSlow.$transaction = vi.fn(
+      () => new Promise((resolve) => {
+        releaseTx = () => resolve({ activity: 0, approvals: 0, intents: 0 });
+      }),
+    );
+    const second = makeService(prismaSlow);
+    const resetting = second.service.reset();
+    await expect(second.service.runBeat(1)).rejects.toThrow(ConflictException);
+    releaseTx();
+    await resetting;
   });
 });

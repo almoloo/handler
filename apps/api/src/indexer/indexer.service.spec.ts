@@ -13,7 +13,8 @@ vi.mock('viem', async (importOriginal) => {
   };
 });
 
-import { IndexerService, cursorKeyFor } from './indexer.service.js';
+import { IndexerService } from './indexer.service.js';
+import { cursorKeyFor } from './cursor.js';
 
 /** Structural shape of the ChainService test double — just what makeService fills in. */
 type MockChain = {
@@ -309,11 +310,6 @@ function callHandleLogForWallet(
   );
 }
 
-describe('cursorKeyFor', () => {
-  it('lowercases the address', () => {
-    expect(cursorKeyFor('0xABCD')).toBe('wallet:0xabcd');
-  });
-});
 
 /** Structural view of IndexerService exposing just its private syncFactory(). */
 type SyncFactoryCapable = { syncFactory: () => Promise<void> };

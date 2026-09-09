@@ -32,11 +32,7 @@ import {
   toPolicyMirrorFields,
   transferSummary,
 } from './event-mapping.js';
-
-/** One row per watched wallet's log stream, per context/backend-roadmap.md §3. */
-export function cursorKeyFor(walletAddress: string): string {
-  return `wallet:${walletAddress.toLowerCase()}`;
-}
+import { CURSOR_TRANSACTION_OPTIONS, cursorKeyFor } from './cursor.js';
 
 /** The factory's own WalletCreated log stream gets one fixed cursor row, distinct from
  * every per-wallet `wallet:<address>` stream. */
@@ -61,7 +57,7 @@ type ActivityEventData = Prisma.ActivityEventUncheckedCreateInput & {
 
 // A generous transaction timeout: a tick's block range can touch several events, each
 // possibly making a chain read (policies/pendingApprovals) inside the same transaction.
-const TICK_TRANSACTION_OPTIONS = { timeout: 15_000 };
+const TICK_TRANSACTION_OPTIONS = CURSOR_TRANSACTION_OPTIONS;
 
 @Injectable()
 export class IndexerService {

@@ -6,6 +6,11 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AgentsService } from '../agents/agents.service.js';
+import { ChainService } from '../chain/chain.service.js';
+import {
+  CURSOR_TRANSACTION_OPTIONS,
+  cursorKeyFor,
+} from '../indexer/cursor.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DemoRunStatus } from '../generated/prisma/enums.js';
 import {
@@ -28,6 +33,10 @@ export const BEATS = {
 
 export type BeatNumber = keyof typeof BEATS;
 
+/** `DemoRun.beat` value the schema reserves for a reset. */
+export const RESET_BEAT = 0;
+
+
 export function isBeatNumber(value: number): value is BeatNumber {
   return value === 1 || value === 2 || value === 3;
 }
@@ -45,14 +54,16 @@ export class DemoService {
   private readonly logger = new Logger(DemoService.name);
   private readonly env: DemoEnv;
   // A beat awaits a real tx submit + receipt, so a mashed director button
-  // could otherwise start a second beat mid-flight and double-submit a real
-  // payment. Same guard as AgentsService.tick()/VillainService.tick().
+  // could otherwise start a second action mid-flight and double-submit a real
+  // payment. Same guard as AgentsService.tick()/VillainService.tick(); see
+  // withSingleFlight() for why beats and resets share one flag.
   private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly agents: AgentsService,
     private readonly villain: VillainService,
+    private readonly chain: ChainService,
     // Not a Nest provider: `@Optional()` makes Nest pass `undefined` so the
     // default runs, while tests hand in an env object directly.
     @Optional() env: DemoEnv = parseDemoEnv(),
@@ -70,18 +81,141 @@ export class DemoService {
    * throws, since there is no run to record it against.
    */
   async runBeat(beat: BeatNumber) {
+    return this.withSingleFlight(async () => {
+      const walletAddress = await this.showcaseWalletAddress();
+      return this.executeBeat(beat, walletAddress);
+    });
+  }
+
+  /** Serializes every director action against every other one. Shared rather
+   * than per-operation on purpose: a reset landing mid-beat would delete the
+   * `Intent` row the beat just wrote and rewind the cursor underneath it. */
+  private async withSingleFlight<T>(fn: () => Promise<T>): Promise<T> {
     if (this.running) {
       throw new ConflictException(
-        'A demo beat is already running — wait for it to finish.',
+        'A demo action is already running — wait for it to finish.',
       );
     }
     this.running = true;
     try {
-      const walletAddress = await this.showcaseWalletAddress();
-      return await this.executeBeat(beat, walletAddress);
+      return await fn();
     } finally {
       this.running = false;
     }
+  }
+
+  /**
+   * Clears the showcase wallet's feed so the next video take opens on an empty
+   * activity list, and returns the finished `DemoRun`.
+   *
+   * What this can and cannot do matters (backend-roadmap §4.6): a beat's
+   * transactions are real on-chain events and nothing here un-happens them.
+   * `spentThisEpoch` lives on-chain, freezes need an owner signature, and there
+   * is no mainnet faucet. All a reset does is delete this wallet's indexed rows
+   * and move its cursor to the current block, so the feed refills only with the
+   * take about to be recorded — nothing false is shown, some true-but-old rows
+   * simply stop being displayed, and the chain stays the source of truth.
+   *
+   * Deliberately *not* a replay from the wallet's creation block: chain rows are
+   * idempotent by `(txHash, logIndex)`, so replaying would re-create exactly what
+   * was just deleted and the feed would be unchanged.
+   */
+  async reset() {
+    return this.withSingleFlight(async () => {
+      const walletAddress = await this.showcaseWalletAddress();
+      return this.executeReset(walletAddress);
+    });
+  }
+
+  /**
+   * Known race, accepted: `withSingleFlight` serializes this against beats but
+   * not against `IndexerService`'s own 3s tick, which is a separate service with
+   * its own guard. A tick that read the old cursor and fetched logs just before
+   * this commits will re-insert some of those rows afterwards. Reset is
+   * idempotent and fast, so the operator taps it again — don't add cross-module
+   * pause plumbing for a cosmetic, self-healing failure.
+   */
+  private async executeReset(walletAddress: string) {
+    const run = await this.prisma.demoRun.create({
+      data: { beat: RESET_BEAT, status: DemoRunStatus.RUNNING, log: [] },
+    });
+
+    const log = [`Reset: clear the showcase wallet's feed`, `Wallet ${walletAddress}`];
+
+    try {
+      // Fetched before the transaction opens: holding a Postgres transaction
+      // across an RPC round trip is how the indexer's timeouts get hit under a
+      // slow provider. A block number that goes stale between here and the
+      // commit is harmless — the cursor lands a block or two early and the next
+      // tick re-indexes that gap idempotently.
+      const blockNumber = await this.chain.publicClient.getBlockNumber();
+
+      const counts = await this.clearWalletFeed(walletAddress, blockNumber);
+
+      log.push(
+        `Deleted ${counts.activity} activity rows, ${counts.approvals} pending approvals, ${counts.intents} intents.`,
+      );
+      log.push(`Indexing resumes from block ${blockNumber}.`);
+
+      return await this.prisma.demoRun.update({
+        where: { id: run.id },
+        data: {
+          status: DemoRunStatus.SUCCEEDED,
+          log,
+          finishedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Reset failed: ${message}`);
+      log.push(`Failed: ${message}`);
+      return await this.prisma.demoRun.update({
+        where: { id: run.id },
+        data: {
+          status: DemoRunStatus.FAILED,
+          log,
+          error: message,
+          finishedAt: new Date(),
+        },
+      });
+    }
+  }
+
+  /**
+   * Deletes one wallet's feed rows and moves its indexer cursor, atomically.
+   *
+   * Every filter is scoped to `walletAddress` — an unscoped `deleteMany` here
+   * would wipe another user's feed, which is the one unrecoverable mistake
+   * available in this service. Deletes run child-first: `ActivityEvent` holds
+   * FKs to both `PendingApproval` and `Intent`. `Policy` is deliberately left
+   * alone; the agents are still hired on-chain, so the mirror is still correct.
+   *
+   * The cursor write must land in the same transaction as the deletes, or the
+   * 3s indexer tick can re-insert the rows before the cursor moves.
+   */
+  private clearWalletFeed(walletAddress: string, blockNumber: bigint) {
+    return this.prisma.$transaction(async (tx) => {
+      const activity = await tx.activityEvent.deleteMany({
+        where: { walletAddress },
+      });
+      const approvals = await tx.pendingApproval.deleteMany({
+        where: { walletAddress },
+      });
+      const intents = await tx.intent.deleteMany({ where: { walletAddress } });
+
+      const key = cursorKeyFor(walletAddress);
+      await tx.indexerCursor.upsert({
+        where: { key },
+        update: { blockNumber },
+        create: { key, blockNumber },
+      });
+
+      return {
+        activity: activity.count,
+        approvals: approvals.count,
+        intents: intents.count,
+      };
+    }, CURSOR_TRANSACTION_OPTIONS);
   }
 
   /** The single place the config is narrowed to its enabled arm. Unreachable

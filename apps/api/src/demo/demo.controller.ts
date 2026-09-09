@@ -24,9 +24,10 @@ export class DemoController {
   /**
    * Triggers one beat against the showcase wallet and returns its finished
    * `DemoRun`. A beat that failed on-chain or in flight still comes back
-   * `200` with `status: FAILED` and the reason — the operator needs to read
-   * it mid-take. `409` while another beat is running, `422` when the
-   * showcase owner has no wallet yet.
+   * `201` with `status: FAILED` and the reason — the operator needs to read
+   * it mid-take, so the run's own status, never the HTTP code, says whether
+   * the beat worked. `409` while another director action is running, `422`
+   * when the showcase owner has no wallet yet.
    */
   @Post('beat/:n')
   runBeat(@Param('n') n: string) {
@@ -40,5 +41,16 @@ export class DemoController {
       throw new BadRequestException('Beat must be 1, 2 or 3.');
     }
     return this.demo.runBeat(beat);
+  }
+
+  /**
+   * Clears the showcase wallet's feed for a retake and returns the finished
+   * `DemoRun` (`beat: 0`). Same response contract as a beat: `201` for both
+   * `SUCCEEDED` and `FAILED`, `409` while another director action is running,
+   * `422` when the showcase owner has no wallet yet.
+   */
+  @Post('reset')
+  reset() {
+    return this.demo.reset();
   }
 }
