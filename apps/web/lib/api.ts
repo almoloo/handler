@@ -222,8 +222,12 @@ export function isUnauthorized(error: unknown): boolean {
  * the session cookie and always resolves against NEXT_PUBLIC_API_URL.
  * A 401 is returned as null rather than thrown, since "no session yet" is an
  * expected state for the sign-in gate, not an error.
+ *
+ * Exported for `lib/demo.ts`, which needs the same base URL, cookie and error
+ * handling but adds the director's own header. That direction is fine; the
+ * reverse is not — no product screen may import from `lib/demo.ts`.
  */
-async function apiFetch<T>(
+export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T | null> {
