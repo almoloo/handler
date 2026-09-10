@@ -68,13 +68,22 @@ contract TrustReader is ITrustReader {
             string[] memory,
             bool[] memory
         ) {
-            if (values.length == 0) return (0, 0, true);
             int256 sumWad;
+            uint256 validCount;
             for (uint256 i; i < values.length; i++) {
+                // valueDecimals is a uint8 the real, permissionless registry lets any caller
+                // set per feedback entry (via giveFeedback) — an entry with decimals > 18
+                // can't be normalized to WAD (10 ** negative underflows and reverts) and is
+                // excluded rather than letting one hostile/malformed entry abort the whole
+                // average and revert every tryExecute() naming this agent as a counterparty.
+                // Mirrors the identical guard in apps/api/src/trust/trust.service.ts.
+                if (valueDecimals[i] > 18) continue;
                 int256 factor = int256(10 ** uint256(18 - valueDecimals[i]));
                 sumWad += int256(values[i]) * factor;
+                validCount++;
             }
-            return (values.length, sumWad / int256(values.length), true);
+            if (validCount == 0) return (0, 0, true);
+            return (validCount, sumWad / int256(validCount), true);
         } catch {
             return (0, 0, false);
         }

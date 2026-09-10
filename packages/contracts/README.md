@@ -87,7 +87,42 @@ contract's attack surface up front rather than discover it themselves:
   cached tier until someone calls `syncAgent()` again for that agent id — the
   same class of staleness the backend's own trust cache already documents for
   an unreachable registry.
-- **Static analysis (Slither) has not been run yet.** A single default pass is
-  planned (`context/contracts-roadmap.md` §3/§5) but not yet done — this
-  section will be updated with the result once it runs, rather than claiming
-  a clean pass that hasn't actually happened.
+- **Static analysis: one default Slither pass run, 22 findings, all triaged.**
+  Every finding was either a false positive (enum-equality reads as
+  "dangerous strict equality"; Slither's timestamp detector lists every
+  comparison in a function once any part of it touches `block.timestamp`,
+  including unrelated ones; default-zero-initialized locals read as
+  "uninitialized"; a compiled bytecode blob read as a "many digits" literal)
+  or an accepted, necessary pattern for this contract's job (the inline
+  assembly + low-level `.call` in `_commitAndCall`/`approve` that forwards
+  ETH and bubbles up a counterparty's real revert reason; the genuine
+  timestamp comparisons in `_rollEpoch`'s 24h epoch roll and
+  `PriceConverter`'s staleness window, both deliberate and tested; the mixed
+  `^0.8.20`/`^0.8.26` pragma floors across OpenZeppelin vs. Handler's own
+  contracts, which still compile under one single solc run). No finding
+  required a code change on its own.
+- **One real bug found while triaging, not by Slither itself, and fixed:**
+  `TrustReader._averageFeedback()` computed `10 ** (18 - valueDecimals[i])`
+  directly — since the real ERC-8004 Reputation Registry lets any caller set
+  `valueDecimals` per feedback entry via the permissionless `giveFeedback()`,
+  a single entry with `valueDecimals > 18` underflowed that subtraction and
+  reverted, uncaught, all the way out through `tierOf()` into
+  `tryExecute()` — a permissionless way to break the "blocked ≠ revert"
+  guarantee for any counterparty. `apps/api/src/trust/trust.service.ts`'s
+  TypeScript mirror of this exact function already excluded malformed
+  entries instead of aborting; `TrustReader.sol` itself never got the
+  equivalent guard until now. Fixed in source, with three new tests proving
+  it (`test_MalformedValueDecimalsEntry_ExcludedNotReverted_StillVerified`,
+  `test_AllFeedbackMalformed_ResolvesToNew_NotReverted`,
+  `test_ValueDecimalsExactly18_IsIncludedNotSkipped` for the boundary) — all
+  confirmed to fail with the exact predicted underflow panic (or the
+  off-by-one equivalent) against the pre-fix code before the fix was
+  applied. **This fix has not yet reached the live Base-mainnet deployment**
+  (`TrustReader`/`HandlerWalletFactory` are both `immutable`-wired, so a
+  source change alone doesn't patch already-deployed bytecode): the
+  vulnerability remains exploitable against the real, already-registered
+  showcase Subcontractor until `TrustReader` and `HandlerWalletFactory` are
+  redeployed via `script/DeployBase.s.sol`, `apps/api/scripts/register-agents.ts`
+  is re-run, and `ts/addresses.ts`'s `8453` entries are updated to match —
+  an operator action with a funded mainnet key, not something this repo can
+  do on its own.

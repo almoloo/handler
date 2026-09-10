@@ -133,6 +133,40 @@ contract TrustReaderTest is Test {
         assertEq(uint8(trustReader.tierOf(agentWallet)), uint8(Tier.VERIFIED));
     }
 
+    function test_MalformedValueDecimalsEntry_ExcludedNotReverted_StillVerified() public {
+        identityRegistry.setWallet(AGENT_ID, agentWallet);
+        trustReader.syncAgent(AGENT_ID);
+        reputationRegistry.addFeedback(AGENT_ID, 90, 0);
+        reputationRegistry.addFeedback(AGENT_ID, 85, 0);
+        reputationRegistry.addFeedback(AGENT_ID, 95, 0);
+        // A hostile/malformed entry (decimals > 18) would underflow `10 ** (18 -
+        // decimals)` if not excluded — this must not revert tierOf(), and must not be
+        // counted toward the average or the VERIFIED feedback-count threshold.
+        reputationRegistry.addFeedback(AGENT_ID, 1, 19);
+        assertEq(uint8(trustReader.tierOf(agentWallet)), uint8(Tier.VERIFIED));
+    }
+
+    function test_ValueDecimalsExactly18_IsIncludedNotSkipped() public {
+        identityRegistry.setWallet(AGENT_ID, agentWallet);
+        trustReader.syncAgent(AGENT_ID);
+        // The exclusion is `> 18`, so 18 itself must still count — 10 ** (18 - 18) == 1,
+        // no underflow. Using it for all 3 entries at the VERIFIED score proves both that
+        // it isn't skipped (count reaches VERIFIED_MIN_FEEDBACK_COUNT) and that its
+        // contribution to the average is correctly scaled (still resolves VERIFIED).
+        reputationRegistry.addFeedback(AGENT_ID, 90e18, 18);
+        reputationRegistry.addFeedback(AGENT_ID, 85e18, 18);
+        reputationRegistry.addFeedback(AGENT_ID, 95e18, 18);
+        assertEq(uint8(trustReader.tierOf(agentWallet)), uint8(Tier.VERIFIED));
+    }
+
+    function test_AllFeedbackMalformed_ResolvesToNew_NotReverted() public {
+        identityRegistry.setWallet(AGENT_ID, agentWallet);
+        trustReader.syncAgent(AGENT_ID);
+        reputationRegistry.addFeedback(AGENT_ID, 100, 19);
+        reputationRegistry.addFeedback(AGENT_ID, 100, 255);
+        assertEq(uint8(trustReader.tierOf(agentWallet)), uint8(Tier.NEW));
+    }
+
     function test_ReputationRegistryReverting_ResolvesToFlagged_NotBubbledRevert() public {
         identityRegistry.setWallet(AGENT_ID, agentWallet);
         trustReader.syncAgent(AGENT_ID);

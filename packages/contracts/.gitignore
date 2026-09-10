@@ -5,6 +5,10 @@ out/
 # Foundry dependencies (restore with `forge install`)
 lib/
 
+# Slither's own throwaway virtualenv (pip install slither-analyzer is blocked
+# outside one by Homebrew Python's PEP 668 guard)
+.venv-slither/
+
 # Commonly ignored directories
 .logs/
 .ignore/
