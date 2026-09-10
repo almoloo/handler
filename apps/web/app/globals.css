@@ -219,3 +219,19 @@ body {
 .font-tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/* frontend-roadmap.md §8 quality floor: every transition/animation in the
+   design system (button/switch/tabs/checkbox/input hover & focus states,
+   progress bar fill) collapses to effectively instant for anyone with the
+   OS-level reduced-motion preference, rather than being guarded per
+   component. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
