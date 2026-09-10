@@ -100,7 +100,7 @@ Note: `ExecutionBlocked` is *emitted from a try/catch wrapper?* — No: reverts 
 - **Unit:** every custom error has a test that triggers it; epoch-roll math at boundaries (23:59:59 vs 24:00:01); price decimals for ETH + USDC paths.
 - **Fuzz:** random amounts/sequences vs caps — invariant: `spentThisEpoch ≤ dailyCapUsd` always.
 - **Invariant test:** wallet balance can only decrease via `Executed` or `Approved` paths.
-- **The demo test:** one Foundry script that replays beats 1–4 exactly — this is the contract lane's smoke test and doubles as the backend's integration fixture.
+- **The demo test:** one Foundry script (`script/DemoReplay.s.sol`) that replays the three renumbered demo beats exactly — this is the contract lane's smoke test and doubles as the backend's integration fixture.
 - Skip: formal verification, gas golf, slither beyond a single default run on day 7.
 
 ---
@@ -114,7 +114,7 @@ Note: `ExecutionBlocked` is *emitted from a try/catch wrapper?* — No: reverts 
 | 3 | TrustReader real ERC-8004 reads (stub + `setOverride` removed) wired into checks; **session interface frozen** | Riley (backend) unblocked; villain block (`ExecutionBlocked` via `tryExecute`) green in tests against a registry mock *in the test file only*, plus a fork test against the real registries |
 | 4 | PriceConverter real Chainlink reads + staleness (stub + `setRate` removed); propose/approve/deny queue | Co-sign loop green in tests; `StalePrice()` has a test |
 | 5 | Factory + CREATE2; deploy scripts; formal testnet/fork deployment (frontend switches hire flow from the dev wallet's direct `hireAgent` to the factory) | Frontend hire flow has a real target |
-| 6 | Fuzz + invariant suite; fix findings; demo-replay script | Beats 1–4 green from forge script |
+| 6 | Fuzz + invariant suite; fix findings; demo-replay script | All 3 renumbered beats green from `forge script script/DemoReplay.s.sol` |
 | 7 | Freeze. Slither pass, README security notes, final deploy, verify on explorer | Verified contracts, addresses committed to shared config |
 | 8–9 | On call for backend/video; no changes except red-alert fixes | — |
 
