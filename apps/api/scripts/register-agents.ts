@@ -8,8 +8,13 @@
  *     above TrustReader's VERIFIED_MIN_SCORE_WAD threshold) -> resolves VERIFIED.
  *   - "New Agent": registered, given no feedback -> resolves NEW.
  *
- * Idempotent: re-running skips any showcase agent whose `Agent` row already has an
- * `erc8004AgentId` (registering again would just mint a second, unused agentId).
+ * Idempotent: re-running skips identity registration and feedback for any
+ * showcase agent whose `Agent` row already has an `erc8004AgentId` (redoing
+ * those would mint a second, unused agentId / duplicate feedback on the real
+ * registries). `syncAgent` always re-runs against the *currently configured*
+ * `TrustReader`, though — its cache is local to that contract, so a re-run is
+ * also how an already-registered agent gets re-warmed onto a freshly
+ * deployed `TrustReader` (e.g. after a redeploy for a contract fix).
  *
  * Usage: `pnpm --filter api register-agents` against a running `pnpm dev:chain`.
  */
@@ -88,9 +93,39 @@ type RegisterOptions = {
   feedback?: { from: PrivateKeyAccount; count: number };
 };
 
+/** Warms `TrustReader.tierOf()`'s cache for `agentId` against whichever
+ * `TrustReader` `config.trustReaderAddress` currently resolves to. Run on
+ * every `registerShowcaseAgent` call — including the already-registered
+ * early return — since the cache is local to that one contract instance and
+ * empty on any freshly deployed `TrustReader`. */
+async function syncTrustReader(opts: {
+  chain: ChainService;
+  config: TrustConfig;
+  walletClient: ReturnType<typeof createWalletClient>;
+  account: PrivateKeyAccount;
+  agentId: bigint;
+  label: string;
+}) {
+  const syncHash = await opts.walletClient.writeContract({
+    chain: null,
+    account: opts.account,
+    address: opts.config.trustReaderAddress,
+    abi: trustReaderAbi,
+    functionName: 'syncAgent',
+    args: [opts.agentId],
+  });
+  await opts.chain.publicClient.waitForTransactionReceipt({ hash: syncHash });
+  console.log(`${opts.label}: synced TrustReader cache for agentId ${opts.agentId}`);
+}
+
 async function registerShowcaseAgent(opts: RegisterOptions) {
   const address = opts.account.address.toLowerCase();
   const rpcUrl = parseChainEnv().CHAIN_RPC_URL;
+
+  const walletClient = createWalletClient({
+    account: opts.account,
+    transport: http(rpcUrl),
+  });
 
   // Idempotency is checked against our own DB, not on-chain state: if the process
   // dies after `register()` succeeds but before the final upsert below (e.g. killed
@@ -102,13 +137,20 @@ async function registerShowcaseAgent(opts: RegisterOptions) {
     console.log(
       `${opts.name}: already registered (agentId ${existing.erc8004AgentId}) — skipping`,
     );
+    // Identity/feedback are already on the real registries and must never be
+    // redone, but TrustReader's sync cache is local to whichever contract is
+    // currently configured — re-sync so a redeploy doesn't leave this agent
+    // unresolvable.
+    await syncTrustReader({
+      chain: opts.chain,
+      config: opts.config,
+      walletClient,
+      account: opts.account,
+      agentId: existing.erc8004AgentId,
+      label: opts.name,
+    });
     return;
   }
-
-  const walletClient = createWalletClient({
-    account: opts.account,
-    transport: http(rpcUrl),
-  });
 
   const { result: agentId, request } = await opts.chain.publicClient.simulateContract({
     account: opts.account,
@@ -142,16 +184,14 @@ async function registerShowcaseAgent(opts: RegisterOptions) {
     );
   }
 
-  const syncHash = await walletClient.writeContract({
-    chain: null,
+  await syncTrustReader({
+    chain: opts.chain,
+    config: opts.config,
+    walletClient,
     account: opts.account,
-    address: opts.config.trustReaderAddress,
-    abi: trustReaderAbi,
-    functionName: 'syncAgent',
-    args: [agentId],
+    agentId,
+    label: opts.name,
   });
-  await opts.chain.publicClient.waitForTransactionReceipt({ hash: syncHash });
-  console.log(`${opts.name}: synced TrustReader cache for agentId ${agentId}`);
 
   await opts.prisma.agent.upsert({
     where: { address },
